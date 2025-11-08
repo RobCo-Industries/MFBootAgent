@@ -1,6 +1,4 @@
-# MF Boot Agent v2.3.0
-
-**Copyright 2201-2203 RobCo Industries**
+# MF Boot Agent
 
 ## Overview
 
@@ -181,4 +179,4 @@ The complete boot chain from power-on to OS kernel entry typically completes in 
 
 ---
 
-*MFBootAgent - Bridging bare metal and operating system since 2201*
+**RobCo Industries™** - *"Engineering a Better Future, Today!"*
