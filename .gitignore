@@ -1,0 +1,30 @@
+# Build artifacts
+build/
+*.o
+*.elf
+*.img
+*.bin
+*.list
+*.map
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Temporary files
+*.tmp
+*.bak
