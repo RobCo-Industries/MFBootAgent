@@ -15,10 +15,7 @@ Be respectful and constructive. This is a technical project focused on bare-meta
    cd MFBootAgent
    ```
 3. **Set up the development environment** (see BUILD.md)
-4. **Run validation**
-   ```bash
-   ./validate.sh
-   ```
+4. **Build all targets** (see BUILD.md)
 
 ## Development Process
 
@@ -26,7 +23,6 @@ Be respectful and constructive. This is a technical project focused on bare-meta
 
 Look for:
 - Open issues labeled `good first issue` or `help wanted`
-- TODO items in SUMMARY.md (Future Enhancements)
 - Driver implementations (USB, TFTP, Holotape)
 - Security features (crypto, secure boot)
 
@@ -91,9 +87,6 @@ Place new code in the appropriate directory:
 ### 4. Test Your Changes
 
 ```bash
-# Run validation
-./validate.sh
-
 # If you have ARM toolchain:
 make clean
 make bcm2835
@@ -216,11 +209,9 @@ MFBootAgent should stay compact:
 
 - [ ] Code compiles for all targets (BCM2835, BCM2836, BCM2837)
 - [ ] No compiler warnings
-- [ ] Validation script passes
 - [ ] Python tools syntax check passes
 - [ ] Tested on real hardware (if possible)
 - [ ] Documentation updated
-- [ ] SUMMARY.md updated if adding features
 
 ### Platform Testing
 
