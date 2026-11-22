@@ -36,7 +36,7 @@ else ifeq ($(TARGET),BCM2837)
 endif
 
 # Compiler flags
-CFLAGS = -Wall -Wextra -Werror -O2 -nostdlib -nostartfiles -ffreestanding
+CFLAGS = -std=gnu11 -Wall -Wextra -Werror -O2 -nostdlib -nostartfiles -ffreestanding
 CFLAGS += $(ARCH_FLAGS) $(DEFINES)
 CFLAGS += -I$(INC_DIR)
 

@@ -1,5 +1,24 @@
 # MF Boot Agent
 
+## Status
+
+This is an early prototype. It builds for BCM2835, BCM2836 and BCM2837, but it does not boot an OS.
+
+What works:
+- `make bcm2835`, `make bcm2836` and `make bcm2837` build with `-Werror`. CI checks this.
+- The boot menu, maintenance menu and emergency shell code compile.
+
+What does not work:
+- The filesystem is fake. `fs_exists` only knows `/boot/uos.img` and `fs_open` returns NULL. There is no FAT32 or ext4.
+- The MMC, USB, TFTP and holotape drivers and `src/crypto.c` are stubs. There is no network boot and no signature check.
+- `tools/sign_payload.py` appends 64 zero bytes instead of a signature.
+- Files in `config/` are never parsed.
+- The loader would load the OS at 0x8000, which is the bootloader's own address.
+- There is no ELF loading, no device tree or ATAGS handoff, and no Termlink protocol.
+- Every boot ends in the emergency shell.
+
+The project is being rebuilt on the shared [RobCo-Core](https://github.com/RobCo-Industries/RobCo-Core) repo. The sections below describe the planned design, not the current code.
+
 ## Overview
 
 MFBootAgent is the critical link between RETROS-BIOS and UOS/Pip-OS, serving as the second-stage bootloader that manages advanced system initialization and operating system loading on RobCo terminal hardware.
@@ -74,16 +93,16 @@ MFBootAgent/
 │   ├── stage2.S             # Entry from RETROS-BIOS
 │   ├── main.c               # Core bootloader logic
 │   ├── memory_mgr.c         # Upper memory allocation (64KB)
-│   ├── filesystem.c         # FAT32/ext4 support
-│   ├── loader.c             # ELF/binary loading
+│   ├── filesystem.c         # Filesystem (stub)
+│   ├── loader.c             # Image loading
 │   ├── menu.c               # Boot device selection menu
 │   ├── maintenance.c        # Maintenance mode utilities
 │   ├── terminal.c           # Terminal protocol init
-│   ├── crypto.c             # Signature verification (if secure boot)
+│   ├── crypto.c             # Signature verification (stub)
 │   └── drivers/
 │       ├── mmc.c            # SD/MMC driver (enhanced from RETROS)
 │       ├── usb.c            # USB mass storage
-│       ├── tftp.c           # Network boot support
+│       ├── tftp.c           # Network boot (stub)
 │       └── holotape.c       # External media support
 ├── include/
 │   ├── mfboot.h
@@ -112,8 +131,8 @@ This function receives control from RETROS-BIOS with hardware initialization par
 - **Multi-stage Loading**: Efficient two-stage boot process for reliable system startup
 - **Maintenance Mode**: Comprehensive diagnostic and recovery tools
 - **Holotape Boot Support**: Legacy external media compatibility
-- **Network Boot (PXE-style)**: Remote boot capabilities via TFTP
-- **Signature Verification**: Secure boot with cryptographic payload verification
+- **Network Boot (PXE-style)**: Planned, not implemented
+- **Signature Verification**: Planned, not implemented
 
 ## Integration Points
 
@@ -156,23 +175,23 @@ RETROS-BIOS completes in approximately 5-9 seconds, including the Fallout-style 
 MFBootAgent prepares the system for OS execution by extending the initialization started by RETROS-BIOS:
 
 #### Bootloader Responsibilities
-- **Filesystem Access**: Implements full FAT32/ext4 support for locating kernel images
+- **Filesystem Access**: Planned FAT32/ext4 support (not implemented)
 - **Device Enumeration**: Scans and identifies available boot devices (SD/MMC, USB, network, holotape)
 - **Boot Menu**: Presents device selection interface if multiple options available
-- **Kernel Loading**: Loads ELF or binary kernel images from selected boot device
+- **Kernel Loading**: Planned ELF or binary loading (not implemented)
 - **Memory Management**: Allocates and manages upper 64KB memory region
-- **Signature Verification**: Validates OS image signatures if secure boot is enabled
+- **Signature Verification**: Planned (not implemented)
 
 #### OS Handoff
 - **Kernel Command Line**: Sets up boot arguments and parameters
-- **Device Tree/ATAGS**: Prepares hardware description structures for OS
+- **Device Tree/ATAGS**: Planned (not implemented)
 - **Memory Map**: Configures initial memory layout with bootloader exclusion zones
 - **Boot Parameters**: Passes device information, root filesystem location, and boot flags
 - **Hardware State**: Ensures all initialized hardware is in a known state for OS takeover
 
 #### Boot Protocol Support
-- **Linux ARM boot protocol**: Standard ATAGS/Device Tree handoff
-- **RobCo Termlink Protocol**: Terminal-specific initialization and capabilities
+- **Linux ARM boot protocol**: Planned (not implemented)
+- **RobCo Termlink Protocol**: Planned (not implemented)
 - **Emergency Shell**: Fallback environment if OS kernel is unavailable or fails to load
 
 The complete boot chain from power-on to OS kernel entry typically completes in 10-15 seconds, with RETROS-BIOS taking 5-9 seconds and MFBootAgent adding 5-6 seconds for device enumeration and kernel loading.
