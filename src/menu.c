@@ -59,7 +59,6 @@ void display_boot_menu(boot_entry_t* entries) {
                 selection = (selection + 1) % num_entries;
                 break;
             case KEY_ENTER:
-            case '\r':
             case '\n':
                 boot_selected(&entries[selection]);
                 break;
