@@ -1,6 +1,6 @@
 # Boot flow
 
-MFBootAgent implements the second stage of [BOOT_PROTOCOL.md](https://github.com/RobCo-Industries/RobCo-Core/blob/f5bba36132a0b10940898c681dde50b453bfffad/docs/spec/BOOT_PROTOCOL.md) in RobCo-Core. That document is the contract. This page says what this stage does and which choices it made where the contract is open.
+MFBootAgent implements the second stage of [BOOT_PROTOCOL.md](https://github.com/RobCo-Industries/RobCo-Core/blob/b2774bf9abeddb3503064999d3cc0461b490e0d0/docs/spec/BOOT_PROTOCOL.md) in RobCo-Core. That document is the contract. This page says what this stage does and which choices it made where the contract is open.
 
 Every marker line has the form `@RC stage=bootagent ev=<event> ...` on the PL011.
 
@@ -85,7 +85,7 @@ In the order they print.
 
 ## Error codes
 
-The codes are the loader's, from [IMAGE_FORMAT.md](https://github.com/RobCo-Industries/RobCo-Core/blob/f5bba36132a0b10940898c681dde50b453bfffad/docs/spec/IMAGE_FORMAT.md). The screen line is `ERROR E<code> <NAME>: <entry>: <reason>`.
+The codes are the loader's, from [IMAGE_FORMAT.md](https://github.com/RobCo-Industries/RobCo-Core/blob/b2774bf9abeddb3503064999d3cc0461b490e0d0/docs/spec/IMAGE_FORMAT.md). The screen line is `ERROR E<code> <NAME>: <entry>: <reason>`.
 
 | Code | `code=` | Reason on screen |
 |---|---|---|
