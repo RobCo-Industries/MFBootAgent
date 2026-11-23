@@ -184,3 +184,50 @@ TEST(set_boot_fields)
     CHECK_STR(bi.cmdline, "");
     CHECK_EQ(bi.cmdline[5], 0);
 }
+
+TEST(short_error_names)
+{
+    char b[16];
+
+    mfb_err_short(b, sizeof(b), MFB_ERR_CRC);
+    CHECK_STR(b, "E08 CRC");
+    mfb_err_short(b, sizeof(b), MFB_ERR_NOFILE);
+    CHECK_STR(b, "E01 NOFILE");
+    mfb_err_short(b, sizeof(b), MFB_ERR_SUBTYPE);
+    CHECK_STR(b, "E06 BOUNDS");
+    mfb_err_short(b, sizeof(b), MFB_ERR_VERSION);
+    CHECK_STR(b, "E04 VERSION");
+    mfb_err_short(b, sizeof(b), 1234);
+    CHECK_STR(b, "E99 UNKNOWN");
+    mfb_err_short(b, 5, MFB_ERR_CRC);
+    CHECK_STR(b, "E08 ");
+}
+
+TEST(maint_flag_four_cases)
+{
+    const uint32_t cold = ROBCO_BOOT_COLD;
+    const uint32_t in = ROBCO_BOOT_MAINT | ROBCO_BOOT_FALLBACK;
+
+    /* Arrived clear, not opened: clear. */
+    CHECK_EQ(mfb_maint_flag(0, 1, 0, 0), 0);
+    CHECK_EQ(mfb_maint_flag(cold, 0, 0, 0), cold);
+    /* Arrived clear, opened by the user: set. */
+    CHECK_EQ(mfb_maint_flag(0, 1, 0, 1), ROBCO_BOOT_MAINT);
+    CHECK_EQ(mfb_maint_flag(cold, 0, 0, 1), cold | ROBCO_BOOT_MAINT);
+    /* Arrived set, not opened: kept. */
+    CHECK_EQ(mfb_maint_flag(in, 1, in, 0), in);
+    /* Arrived set and opened: set. */
+    CHECK_EQ(mfb_maint_flag(in, 1, in, 1), in);
+    /* An untrusted block's bit counts for nothing, and a stray bit is cleared. */
+    CHECK_EQ(mfb_maint_flag(cold | ROBCO_BOOT_MAINT, 0, ROBCO_BOOT_MAINT, 0), cold);
+    CHECK_EQ(mfb_maint_flag(0xFFFFFFFFu, 1, 0, 0), 0xFFFFFFFFu & ~ROBCO_BOOT_MAINT);
+}
+
+TEST(maint_at_start)
+{
+    CHECK_EQ(mfb_maint_at_start(1, ROBCO_BOOT_MAINT), 1);
+    CHECK_EQ(mfb_maint_at_start(1, 0xFFFFFFFFu), 1);
+    CHECK_EQ(mfb_maint_at_start(1, ROBCO_BOOT_COLD | ROBCO_BOOT_FALLBACK), 0);
+    CHECK_EQ(mfb_maint_at_start(0, ROBCO_BOOT_MAINT), 0);
+    CHECK_EQ(mfb_maint_at_start(0, 0), 0);
+}

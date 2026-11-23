@@ -48,6 +48,9 @@ const char *mfb_err_text(int err);
  */
 void mfb_error_line(char *buf, size_t size, int err, const char *name);
 
+/* The short form of an error for tables: "E08 CRC". Cut to size - 1 characters. */
+void mfb_err_short(char *buf, size_t size, int err);
+
 /* 1 for the BOOT subtypes this stage starts: UOS, maintenance and diagnostics. */
 int mfb_subtype_ok(uint32_t subtype);
 
@@ -73,5 +76,18 @@ int mfb_check_os_header(const void *head, size_t len, uint32_t file_size);
  */
 void mfb_bootinfo_set_boot(robco_bootinfo_t *bi, uint32_t boot_dev, uint32_t part_lba,
                            const char *path, const char *cmdline);
+
+/*
+ * boot_flags bit 1, "the user asked for maintenance mode". `flags` is
+ * the field bootinfo_build() wrote: as received after a trusted handoff,
+ * bit 2 alone after a cold boot. Returns `flags` with bit 1 set when the
+ * user opened the maintenance screen during this boot, or when the bit
+ * arrived set in a trusted block; with bit 1 clear otherwise. Other bits
+ * stay.
+ */
+uint32_t mfb_maint_flag(uint32_t flags, int trusted, uint32_t received, int user_opened);
+
+/* 1 when the maintenance screen opens at start: a trusted block with bit 1 set. */
+int mfb_maint_at_start(int trusted, uint32_t received);
 
 #endif

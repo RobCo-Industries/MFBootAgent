@@ -56,7 +56,7 @@ const char *mfb_err_text(int err)
     return e != NULL ? e->text : "unknown error";
 }
 
-void mfb_error_line(char *buf, size_t size, int err, const char *name)
+void mfb_err_short(char *buf, size_t size, int err)
 {
     char upper[8];
     const char *n = mfb_err_name(err);
@@ -69,11 +69,32 @@ void mfb_error_line(char *buf, size_t size, int err, const char *name)
         upper[i] = (n[i] >= 'a' && n[i] <= 'z') ? (char)(n[i] - 'a' + 'A') : n[i];
     }
     upper[i] = '\0';
+    k_snprintf(buf, size, "E%02u %s", shown, upper);
+}
+
+void mfb_error_line(char *buf, size_t size, int err, const char *name)
+{
+    char code[16];
+
+    mfb_err_short(code, sizeof(code), err);
     if (name != NULL && name[0] != '\0') {
-        k_snprintf(buf, size, "ERROR E%02u %s: %s: %s", shown, upper, name, mfb_err_text(err));
+        k_snprintf(buf, size, "ERROR %s: %s: %s", code, name, mfb_err_text(err));
     } else {
-        k_snprintf(buf, size, "ERROR E%02u %s: %s", shown, upper, mfb_err_text(err));
+        k_snprintf(buf, size, "ERROR %s: %s", code, mfb_err_text(err));
     }
+}
+
+int mfb_maint_at_start(int trusted, uint32_t received)
+{
+    return trusted && (received & ROBCO_BOOT_MAINT) != 0;
+}
+
+uint32_t mfb_maint_flag(uint32_t flags, int trusted, uint32_t received, int user_opened)
+{
+    if (user_opened || mfb_maint_at_start(trusted, received)) {
+        return flags | ROBCO_BOOT_MAINT;
+    }
+    return flags & ~ROBCO_BOOT_MAINT;
 }
 
 int mfb_subtype_ok(uint32_t subtype)
