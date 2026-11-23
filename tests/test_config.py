@@ -40,7 +40,8 @@ def test_no_usable_entry(board, mfboot_image, test_os, need_mtools, tmp_path):
     with alone(mfboot_image, board, card(tmp_path, os_files(test_os), cfg=bad)) as vm:
         vm.wait_for(READY, timeout=TIMEOUT)
         cfg = one(vm, "config")
-        assert (cfg["result"], cfg["why"], cfg["bad"]) == ("bad", "empty", "2"), cfg
+        assert (cfg["result"], cfg["why"], cfg["entries"], cfg["bad"], cfg["nopath"]) == \
+            ("bad", "empty", "0", "1", "0"), cfg
         check_default_menu(vm)
 
 
@@ -53,8 +54,8 @@ def test_counts_and_limits(board, mfboot_image, test_os, need_mtools, tmp_path):
         vm.wait_for(READY, timeout=TIMEOUT)
         cfg = one(vm, "config")
         assert (cfg["result"], cfg["entries"], cfg["ignored"], cfg["dup"], cfg["unknown"],
-                cfg["bad"], cfg["clamped"], cfg["default_found"]) == \
-            ("ok", "8", "1", "1", "1", "1", "1", "0"), cfg
+                cfg["bad"], cfg["clamped"], cfg["default_found"], cfg["nopath"]) == \
+            ("ok", "8", "1", "1", "1", "1", "1", "0", "0"), cfg
         ent = one(vm, "entries")
         # E9 is past the eighth entry, so the default is the first.
         assert (ent["count"], ent["default"], ent["timeout"]) == ("8", "E1", "99"), ent
@@ -67,3 +68,23 @@ def test_counts_and_limits(board, mfboot_image, test_os, need_mtools, tmp_path):
         key(vm, "select")
         vm.wait_for(OS_READY, timeout=TIMEOUT)
         assert one(vm, "bootinfo", "testos")["cmdline"] == "n=8"
+
+
+def test_dropped_sections_take_no_slot(board, mfboot_image, test_os, need_mtools, tmp_path):
+    """Eight sections with no path, then a ninth: the menu shows the ninth, and its
+    path goes to the boot info in upper case."""
+    text = "".join(f"[entry E{i}]\n" for i in range(1, 9))
+    text += "[entry E9]\npath = /robco/maint.sys\n"
+    with alone(mfboot_image, board, card(tmp_path, os_files(test_os), cfg=text.encode())) as vm:
+        vm.wait_for(READY, timeout=TIMEOUT)
+        cfg = one(vm, "config")
+        assert (cfg["result"], cfg["entries"], cfg["ignored"], cfg["bad"], cfg["nopath"],
+                cfg["dup"]) == ("ok", "1", "0", "8", "8", "0"), cfg
+        ent = one(vm, "entries")
+        assert (ent["count"], ent["default"]) == ("1", "E9"), ent
+        _, rows = dump(vm)
+        assert rows[5] == "> 1  E9              DEFAULT  /ROBCO/MAINT.SYS", rows
+        key(vm, "select")
+        vm.wait_for(OS_READY, timeout=TIMEOUT)
+        assert one(vm, "choose")["path"] == "/ROBCO/MAINT.SYS"
+        assert one(vm, "bootinfo", "testos")["path"] == "/ROBCO/MAINT.SYS"

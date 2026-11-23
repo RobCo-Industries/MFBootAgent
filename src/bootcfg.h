@@ -1,8 +1,8 @@
 /*
  * /ROBCO/BOOT.CFG: the [boot] section and the [entry NAME] sections.
  * Pure code on top of RobCo-Core's INI reader: the host tests link it.
- * The format is the draft in BOOT_PROTOCOL.md; docs/BOOT.md lists every
- * key, limit and default.
+ * The rules are those of BOOT_PROTOCOL.md; docs/BOOT.md lists every
+ * key, limit, default and counter.
  */
 #ifndef MFB_BOOTCFG_H
 #define MFB_BOOTCFG_H
@@ -17,6 +17,7 @@
 #define MFB_MAX_ENTRIES     8
 #define MFB_NAME_MAX        15      /* characters of an entry name */
 #define MFB_PATH_MAX        63      /* characters of a path: boot_path holds 64 bytes */
+#define MFB_PATH_COMPONENTS 8       /* components of a path, each 8.3 */
 #define MFB_CMDLINE_MAX     127     /* characters of a cmdline: cmdline holds 128 bytes */
 #define MFB_TIMEOUT_MAX     99      /* seconds */
 #define MFB_TIMEOUT_NONE    (-1)    /* no timeout key: the menu waits for ever */
@@ -37,14 +38,18 @@ typedef struct {
     int timeout;            /* seconds 0 to 99, or MFB_TIMEOUT_NONE */
 } mfb_cfg_t;
 
-/* What the parser skipped, for the config marker. */
+/*
+ * What the parser skipped, for the config marker. Each [entry ...]
+ * header counts once: in a slot, or in bad, dup or ignored.
+ */
 typedef struct {
-    unsigned ignored;       /* valid entries past the eighth */
-    unsigned dup;           /* entries whose name an earlier entry has */
-    unsigned unknown;       /* unknown keys and keys of unknown sections */
-    unsigned bad;           /* bad values, and entries with a bad name or no usable path */
+    unsigned ignored;       /* usable entries past the eighth */
+    unsigned dup;           /* entry headers whose name an earlier entry header used */
+    unsigned unknown;       /* unknown keys, keys before any section, keys of unknown sections */
+    unsigned bad;           /* bad or missing name, missing or bad path, bad cmdline, bad timeout */
+    unsigned nopath;        /* the part of bad that had no path key */
     unsigned clamped;       /* timeout values above 99 */
-    int default_found;      /* [boot] default names an entry */
+    int default_found;      /* [boot] default names an entry in a slot */
 } mfb_cfg_report_t;
 
 /* Results of mfb_cfg_parse(). */
@@ -56,9 +61,12 @@ typedef struct {
 void mfb_cfg_default(mfb_cfg_t *cfg);
 
 /*
- * Parses `len` bytes. On MFB_CFG_OK, cfg holds the entries in file
- * order. On any other result cfg is mfb_cfg_default() and the report
- * counts what was seen up to the error. err_line may be NULL.
+ * Parses `len` bytes with ini_parse_sections(). Nothing counts until the
+ * whole text parses. On MFB_CFG_OK, cfg holds the usable entries in file
+ * order, each path in upper case. On MFB_CFG_EMPTY cfg is
+ * mfb_cfg_default() and the report counts what the file held. On
+ * MFB_CFG_SYNTAX cfg is mfb_cfg_default() and the report is zero.
+ * err_line may be NULL.
  */
 int mfb_cfg_parse(const char *text, size_t len, mfb_cfg_t *cfg, mfb_cfg_report_t *rep,
                   unsigned *err_line);

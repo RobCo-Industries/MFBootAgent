@@ -246,12 +246,14 @@ static void read_config(void)
         if (rc == MFB_CFG_SYNTAX) {
             MFB_MARK("config result=bad path=" MFB_CFG_PATH " why=syntax line=%u", err_line);
         } else if (rc == MFB_CFG_EMPTY) {
-            MFB_MARK("config result=bad path=" MFB_CFG_PATH " why=empty ignored=%u dup=%u "
-                     "unknown=%u bad=%u", r.ignored, r.dup, r.unknown, r.bad);
+            MFB_MARK("config result=bad path=" MFB_CFG_PATH " why=empty entries=0 ignored=%u "
+                     "dup=%u unknown=%u bad=%u clamped=%u nopath=%u",
+                     r.ignored, r.dup, r.unknown, r.bad, r.clamped, r.nopath);
         } else {
             MFB_MARK("config result=ok path=" MFB_CFG_PATH " entries=%u ignored=%u dup=%u "
-                     "unknown=%u bad=%u clamped=%u default_found=%d",
-                     cfg.count, r.ignored, r.dup, r.unknown, r.bad, r.clamped, r.default_found);
+                     "unknown=%u bad=%u clamped=%u default_found=%d nopath=%u",
+                     cfg.count, r.ignored, r.dup, r.unknown, r.bad, r.clamped, r.default_found,
+                     r.nopath);
         }
     }
     if (cfg.timeout == MFB_TIMEOUT_NONE) {

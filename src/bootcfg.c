@@ -3,66 +3,38 @@
 #include <robco/ini.h>
 #include <robco/klibc.h>
 
-#define ENTRY_PREFIX "entry "
-
 /* Section kinds. */
 #define SEC_NONE    0   /* before any section, or an unknown one */
 #define SEC_BOOT    1
-#define SEC_BIOS    2   /* RETROS-BIOS reads it; MFBootAgent ignores it */
-#define SEC_ENTRY   3   /* a valid [entry NAME] */
-#define SEC_SKIP    4   /* an entry that is ignored: duplicate, bad name or past the eighth */
+#define SEC_BIOS    2   /* RETROS-BIOS reads it; MFBootAgent skips it */
+#define SEC_ENTRY   3   /* an [entry ...] header with a good, new name */
+#define SEC_SKIP    4   /* an [entry ...] header already counted as bad or dup */
+
+/*
+ * Every header line is at least "[entry a]" and a line end: a file of
+ * MFB_CFG_FILE_MAX bytes holds at most this many entry headers.
+ */
+#define MAX_HEADERS (MFB_CFG_FILE_MAX / 10 + 1)
 
 typedef struct {
     mfb_cfg_t *cfg;
     mfb_cfg_report_t *rep;
-    char section[INI_MAX_SECTION + 1];
     int kind;
-    int path_ok[MFB_MAX_ENTRIES];
-    unsigned seen;              /* [entry NAME] sections with a valid name, in file order */
+    /* The open [entry NAME] section. Its keys take their last value. */
+    char name[MFB_NAME_MAX + 1];
+    char path[INI_MAX_VALUE + 1];
+    char cmdline[INI_MAX_VALUE + 1];
+    int have_path;
+    unsigned unknown;
+    /* Every good name an entry header used, slots or not. */
+    char names[MAX_HEADERS][MFB_NAME_MAX + 1];
+    unsigned names_n;
+    /* [boot], one section however often it appears. */
     char def[INI_MAX_VALUE + 1];
     int have_def;
-    const char *text;           /* the file, scanned for section header lines */
-    size_t len;
-    size_t pos;                 /* start of line `line` */
-    unsigned line;              /* next line to scan, from 1 */
+    char timeout[INI_MAX_VALUE + 1];
+    int have_timeout;
 } parse_t;
-
-/*
- * 1 when a section header line lies before line `upto` and after the
- * lines scanned so far. ini_parse() reports keys only, so this is how a
- * repeated [entry NAME] header shows as a new section.
- */
-static int crossed_header(parse_t *p, unsigned upto)
-{
-    int found = 0;
-
-    while (p->line < upto && p->pos < p->len) {
-        size_t i = p->pos;
-
-        while (i < p->len && (p->text[i] == ' ' || p->text[i] == '\t')) {
-            i++;
-        }
-        if (i < p->len && p->text[i] == '[') {
-            found = 1;
-        }
-        while (i < p->len && p->text[i] != '\n') {
-            i++;
-        }
-        p->pos = i < p->len ? i + 1 : i;
-        p->line++;
-    }
-    /* Skip the key line itself. */
-    if (p->line == upto && p->pos < p->len) {
-        size_t i = p->pos;
-
-        while (i < p->len && p->text[i] != '\n') {
-            i++;
-        }
-        p->pos = i < p->len ? i + 1 : i;
-        p->line++;
-    }
-    return found;
-}
 
 static char lower(char c)
 {
@@ -131,135 +103,193 @@ void mfb_cfg_default(mfb_cfg_t *cfg)
     cfg->timeout = MFB_TIMEOUT_NONE;
 }
 
-/* A path the loader can use and a marker can print: absolute, no blanks, fits boot_path. */
-static int path_valid(const char *p)
+/* The boot partition name rule, upper-cased into `out`. Returns 1 when `p` follows it. */
+static int path_upper(const char *p, char *out)
 {
     size_t n = k_strlen(p);
-    size_t i;
+    unsigned comps = 0;
+    size_t i = 0;
 
     if (n < 2 || n > MFB_PATH_MAX || p[0] != '/') {
         return 0;
     }
-    for (i = 0; i < n; i++) {
-        if (p[i] == ' ' || p[i] == '\t') {
+    while (i < n) {
+        unsigned base = 0, ext = 0;
+        int dot = 0;
+
+        out[i] = '/';
+        i++;
+        if (++comps > MFB_PATH_COMPONENTS) {
+            return 0;
+        }
+        for (; i < n && p[i] != '/'; i++) {
+            char c = p[i];
+
+            if (c == '.') {
+                if (dot) {
+                    return 0;
+                }
+                dot = 1;
+            } else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                       (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '~') {
+                if (dot) {
+                    ext++;
+                } else {
+                    base++;
+                }
+            } else {
+                return 0;
+            }
+            out[i] = (c >= 'a' && c <= 'z') ? (char)(c - 'a' + 'A') : c;
+        }
+        /* An empty component, a trailing '/', "." and ".." all fail here. */
+        if (base < 1 || base > 8 || (dot && (ext < 1 || ext > 3))) {
+            return 0;
+        }
+    }
+    out[n] = '\0';
+    return 1;
+}
+
+/* Printable ASCII only: 0x20 to 0x7E. */
+static int cmdline_ok(const char *s)
+{
+    for (; *s != '\0'; s++) {
+        if ((unsigned char)*s < 0x20 || (unsigned char)*s > 0x7e) {
             return 0;
         }
     }
     return 1;
 }
 
-/* A new section: decides what its keys do. */
-static void enter_section(parse_t *p, const char *section)
+static int name_ok(const char *s)
 {
+    size_t n = k_strlen(s);
+
+    if (n < 1 || n > MFB_NAME_MAX) {
+        return 0;
+    }
+    for (; *s != '\0'; s++) {
+        char c = *s;
+
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+              c == '_' || c == '-')) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* The open entry section ends: steps 3 to 5 of the spec's order. */
+static void close_entry(parse_t *p)
+{
+    mfb_cfg_t *cfg = p->cfg;
+    mfb_entry_t *e;
+    char up[MFB_PATH_MAX + 1];
+
+    if (p->kind != SEC_ENTRY) {
+        return;
+    }
+    p->kind = SEC_NONE;
+    if (!p->have_path) {
+        p->rep->bad++;
+        p->rep->nopath++;
+        return;
+    }
+    if (!path_upper(p->path, up) || !cmdline_ok(p->cmdline)) {
+        p->rep->bad++;
+        return;
+    }
+    if (cfg->count == MFB_MAX_ENTRIES) {
+        p->rep->ignored++;
+        return;
+    }
+    e = &cfg->entry[cfg->count++];
+    copy(e->name, sizeof(e->name), p->name);
+    copy(e->path, sizeof(e->path), up);
+    /* ini.h caps a value at 127 bytes: every cmdline that parses fits. */
+    copy(e->cmdline, sizeof(e->cmdline), p->cmdline);
+    p->rep->unknown += p->unknown;
+}
+
+/* A new header: steps 1 and 2 of the spec's order for an entry header. */
+static int on_section(const char *section, unsigned line, void *ctx)
+{
+    parse_t *p = ctx;
     const char *name;
-    size_t n;
     unsigned i;
 
-    copy(p->section, sizeof(p->section), section);
+    (void)line;
+    close_entry(p);
     if (same_nocase(section, "boot")) {
         p->kind = SEC_BOOT;
-        return;
+        return 0;
     }
     if (same_nocase(section, "bios")) {
         p->kind = SEC_BIOS;
-        return;
+        return 0;
     }
-    if (same_nocase(section, "entry")) {
-        /* [entry] with no name. */
-        p->rep->bad++;
-        p->kind = SEC_SKIP;
-        return;
-    }
-    if (!prefix_nocase(section, ENTRY_PREFIX)) {
+    if (!prefix_nocase(section, "entry") ||
+        (section[5] != '\0' && section[5] != ' ' && section[5] != '\t')) {
         p->kind = SEC_NONE;
-        return;
+        return 0;
     }
-    name = section + sizeof(ENTRY_PREFIX) - 1;
-    while (*name == ' ') {
+    /* ini.h trims the header, so "[entry ]" arrives as "entry". */
+    name = section + 5;
+    while (*name == ' ' || *name == '\t') {
         name++;
     }
-    n = k_strlen(name);
-    if (n == 0 || n > MFB_NAME_MAX) {
+    p->kind = SEC_SKIP;
+    if (!name_ok(name)) {
         p->rep->bad++;
-        p->kind = SEC_SKIP;
-        return;
+        return 0;
     }
-    for (i = 0; i < p->cfg->count; i++) {
-        if (same_nocase(p->cfg->entry[i].name, name)) {
+    for (i = 0; i < p->names_n; i++) {
+        if (same_nocase(p->names[i], name)) {
             p->rep->dup++;
-            p->kind = SEC_SKIP;
-            return;
+            return 0;
         }
     }
-    p->seen++;
-    if (p->cfg->count == MFB_MAX_ENTRIES) {
-        p->rep->ignored++;
-        p->kind = SEC_SKIP;
-        return;
+    if (p->names_n < MAX_HEADERS) {
+        copy(p->names[p->names_n++], sizeof(p->names[0]), name);
     }
-    copy(p->cfg->entry[p->cfg->count].name, sizeof(p->cfg->entry[0].name), name);
-    p->path_ok[p->cfg->count] = 0;
-    p->cfg->count++;
     p->kind = SEC_ENTRY;
+    copy(p->name, sizeof(p->name), name);
+    p->path[0] = '\0';
+    p->cmdline[0] = '\0';
+    p->have_path = 0;
+    p->unknown = 0;
+    return 0;
 }
 
-static void boot_key(parse_t *p, const char *key, const char *value)
-{
-    uint32_t v;
-
-    if (same_nocase(key, "default")) {
-        copy(p->def, sizeof(p->def), value);
-        p->have_def = 1;
-    } else if (same_nocase(key, "timeout")) {
-        if (mfb_cfg_number(value, &v) != 0) {
-            p->rep->bad++;
-            return;
-        }
-        if (v > MFB_TIMEOUT_MAX) {
-            v = MFB_TIMEOUT_MAX;
-            p->rep->clamped++;
-        }
-        p->cfg->timeout = (int)v;
-    } else {
-        p->rep->unknown++;
-    }
-}
-
-static void entry_key(parse_t *p, const char *key, const char *value)
-{
-    unsigned i = p->cfg->count - 1;
-    mfb_entry_t *e = &p->cfg->entry[i];
-
-    if (same_nocase(key, "path")) {
-        if (!path_valid(value)) {
-            p->rep->bad++;
-            return;
-        }
-        copy(e->path, sizeof(e->path), value);
-        p->path_ok[i] = 1;
-    } else if (same_nocase(key, "cmdline")) {
-        /* ini.h caps a value at 127 bytes: every cmdline that parses fits. */
-        copy(e->cmdline, sizeof(e->cmdline), value);
-    } else {
-        p->rep->unknown++;
-    }
-}
-
-static int handler(const char *section, const char *key, const char *value, unsigned line,
-                   void *ctx)
+static int on_key(const char *section, const char *key, const char *value, unsigned line,
+                  void *ctx)
 {
     parse_t *p = ctx;
 
-    /* Always scan, so the scan stays in step with the keys. */
-    if (crossed_header(p, line) || k_strcmp(section, p->section) != 0) {
-        enter_section(p, section);
-    }
+    (void)section;
+    (void)line;
     switch (p->kind) {
     case SEC_BOOT:
-        boot_key(p, key, value);
+        if (same_nocase(key, "default")) {
+            copy(p->def, sizeof(p->def), value);
+            p->have_def = 1;
+        } else if (same_nocase(key, "timeout")) {
+            copy(p->timeout, sizeof(p->timeout), value);
+            p->have_timeout = 1;
+        } else {
+            p->rep->unknown++;
+        }
         break;
     case SEC_ENTRY:
-        entry_key(p, key, value);
+        if (same_nocase(key, "path")) {
+            copy(p->path, sizeof(p->path), value);
+            p->have_path = 1;
+        } else if (same_nocase(key, "cmdline")) {
+            copy(p->cmdline, sizeof(p->cmdline), value);
+        } else {
+            p->unknown++;
+        }
         break;
     case SEC_BIOS:
     case SEC_SKIP:
@@ -271,26 +301,34 @@ static int handler(const char *section, const char *key, const char *value, unsi
     return 0;
 }
 
-/* Drops the entries that got no usable path, keeping the order. */
-static void drop_pathless(parse_t *p)
+/* The [boot] values, read once the whole file is known: the last value of a key counts. */
+static void apply_boot(parse_t *p)
 {
     mfb_cfg_t *cfg = p->cfg;
-    unsigned in, out = 0;
+    uint32_t v;
+    unsigned i;
 
-    for (in = 0; in < cfg->count; in++) {
-        if (!p->path_ok[in]) {
+    if (p->have_timeout) {
+        if (mfb_cfg_number(p->timeout, &v) != 0) {
             p->rep->bad++;
-            continue;
+        } else {
+            if (v > MFB_TIMEOUT_MAX) {
+                v = MFB_TIMEOUT_MAX;
+                p->rep->clamped++;
+            }
+            cfg->timeout = (int)v;
         }
-        if (out != in) {
-            cfg->entry[out] = cfg->entry[in];
+    }
+    cfg->def = 0;
+    if (p->have_def) {
+        for (i = 0; i < cfg->count; i++) {
+            if (same_nocase(cfg->entry[i].name, p->def)) {
+                cfg->def = i;
+                p->rep->default_found = 1;
+                break;
+            }
         }
-        out++;
     }
-    for (in = out; in < cfg->count; in++) {
-        k_memset(&cfg->entry[in], 0, sizeof(cfg->entry[in]));
-    }
-    cfg->count = out;
 }
 
 int mfb_cfg_parse(const char *text, size_t len, mfb_cfg_t *cfg, mfb_cfg_report_t *rep,
@@ -298,21 +336,16 @@ int mfb_cfg_parse(const char *text, size_t len, mfb_cfg_t *cfg, mfb_cfg_report_t
 {
     static parse_t p;
     unsigned line = 0;
-    unsigned i;
     int rc;
 
     k_memset(&p, 0, sizeof(p));
     k_memset(cfg, 0, sizeof(*cfg));
     k_memset(rep, 0, sizeof(*rep));
-    cfg->timeout = MFB_TIMEOUT_NONE;
+    /* First pass: the whole file must parse before anything counts. */
     p.cfg = cfg;
     p.rep = rep;
-    p.text = text;
-    p.len = len;
-    p.line = 1;
-    /* No section yet: keys before the first one are unknown. */
-    p.kind = SEC_NONE;
-    rc = ini_parse(text, len, handler, &p, &line);
+    rc = ini_parse_sections(text, len, NULL, on_section, &p, &line);
+    k_memset(rep, 0, sizeof(*rep));
     if (err_line != NULL) {
         *err_line = line;
     }
@@ -320,20 +353,18 @@ int mfb_cfg_parse(const char *text, size_t len, mfb_cfg_t *cfg, mfb_cfg_report_t
         mfb_cfg_default(cfg);
         return MFB_CFG_SYNTAX;
     }
-    drop_pathless(&p);
+    /* Second pass: the file parses, so act on each section and key. */
+    k_memset(&p, 0, sizeof(p));
+    cfg->timeout = MFB_TIMEOUT_NONE;
+    p.cfg = cfg;
+    p.rep = rep;
+    p.kind = SEC_NONE;  /* keys before the first section are unknown */
+    (void)ini_parse_sections(text, len, on_key, on_section, &p, NULL);
+    close_entry(&p);
+    apply_boot(&p);
     if (cfg->count == 0) {
         mfb_cfg_default(cfg);
         return MFB_CFG_EMPTY;
-    }
-    cfg->def = 0;
-    if (p.have_def) {
-        for (i = 0; i < cfg->count; i++) {
-            if (same_nocase(cfg->entry[i].name, p.def)) {
-                cfg->def = i;
-                rep->default_found = 1;
-                break;
-            }
-        }
     }
     return MFB_CFG_OK;
 }
