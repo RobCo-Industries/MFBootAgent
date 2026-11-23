@@ -16,6 +16,7 @@
 #include <robco/input.h>
 #include <robco/irq.h>
 #include <robco/klibc.h>
+#include <robco/loader.h>
 #include <robco/part.h>
 #include <robco/power.h>
 #include <robco/rimg.h>
@@ -46,6 +47,7 @@ static fs_boot_t vol;
 static mfb_cfg_t cfg;
 static char cfg_text[MFB_CFG_FILE_MAX];
 
+static loader_result_t res;
 static mfb_menu_t menu;
 static unsigned menu_top;       /* console row of the menu's first row */
 static unsigned menu_rows;      /* MFB_MENU_ROWS(cfg.count) */
@@ -443,6 +445,96 @@ static void show_menu(void)
     MFB_MARK("ready");
 }
 
+/* Clears a menu row. */
+static void clear_row(unsigned row)
+{
+    put_row(row, "", CONSOLE_ATTR_NORMAL, 0);
+}
+
+/* Step 6: a failed load. The error line under the menu, and the menu stays. */
+static void load_failed(const mfb_entry_t *e, int err)
+{
+    char line[MFB_LINE_MAX];
+
+    mfb.error = err;
+    MFB_MARK("error code=%s path=%s name=%s", mfb_err_name(err), e->path, e->name);
+    mfb_error_line(line, sizeof(line), err, e->name);
+    clear_row(after_row(MFB_ROW_START_AFTER));
+    put_row(after_row(MFB_ROW_ERROR_AFTER), line, CONSOLE_ATTR_BRIGHT, 1);
+    mfb_menu_stop(&menu);
+    redraw();
+    if (mfb.fb_ok) {
+        console_set_cursor(0, menu_top + menu_rows - 1);
+    }
+    mfb.phase = MFB_PHASE_MENU;
+}
+
+/*
+ * Step 5: the boot info and the jump. The cursor goes to the row after
+ * the menu, so the next stage writes below it.
+ */
+static void handoff(const mfb_entry_t *e)
+{
+    robco_bootinfo_t *bi = (robco_bootinfo_t *)ROBCO_BOOTINFO_ADDR;
+    char line[MFB_LINE_MAX];
+    char name[sizeof(res.hdr->name) + 1];
+
+    fs_unmount("sd");
+    k_snprintf(line, sizeof(line), "Starting %s.", e->name);
+    clear_row(after_row(MFB_ROW_ERROR_AFTER));
+    put_row(after_row(MFB_ROW_START_AFTER), line, CONSOLE_ATTR_NORMAL, 1);
+    if (mfb.fb_ok) {
+        console_set_cursor(0, menu_top + after_row(MFB_ROW_START_AFTER));
+        console_putc('\n');
+        console_cursor_show(0);
+    }
+    bootinfo_build(bi, ROBCO_STAGE_BOOTAGENT);
+    mfb_bootinfo_set_boot(bi, ROBCO_BOOT_DEV_EMMC, (uint32_t)vol.start_lba, e->path, e->cmdline);
+    k_memcpy(name, res.hdr->name, sizeof(res.hdr->name));
+    name[sizeof(res.hdr->name)] = '\0';
+    MFB_MARK("bootinfo flags=0x%08x caps=0x%08x dev=%u part_lba=%u path=%s cmdline_len=%u "
+             "scheme=%u cx=%u cy=%u",
+             (unsigned)bi->boot_flags, (unsigned)bi->caps, (unsigned)bi->boot_dev,
+             (unsigned)bi->boot_part_lba, bi->boot_path[0] != '\0' ? bi->boot_path : "none",
+             (unsigned)k_strlen(bi->cmdline), (unsigned)bi->con_scheme, (unsigned)bi->con_cx,
+             (unsigned)bi->con_cy);
+    MFB_MARK("jump entry=0x%08x name=%s", (unsigned)res.entry, name);
+    uart_flush();
+    robco_handoff(res.entry, bi, bi->fdt_size != 0 ? bi->fdt_addr : 0);
+}
+
+/* Step 5: loads the selected entry into the OS slot. Returns only when it fails. */
+static void boot_selected(void)
+{
+    const loader_slot_t slot = { MFB_OS_SLOT_BASE, MFB_OS_SLOT_SIZE, NULL };
+    const rimg_expect_t expect = { .magic = RIMG_MAGIC_BOOT, .abi_major = MFB_OS_ABI };
+    const mfb_entry_t *e = &cfg.entry[menu.sel];
+    char line[MFB_LINE_MAX];
+    char name[sizeof(res.hdr->name) + 1];
+    int rc;
+
+    mfb.phase = MFB_PHASE_LOAD;
+    MFB_MARK("choose index=%u name=%s path=%s via=%s", menu.sel + 1, e->name, e->path,
+             menu.via == MFB_VIA_KEY ? "key" : "timeout");
+    redraw();
+    mfb_line_loading(line, sizeof(line), e);
+    put_row(after_row(MFB_ROW_START_AFTER), line, CONSOLE_ATTR_NORMAL, 1);
+    rc = loader_load(e->path, &slot, &expect, &res);
+    if (rc == RIMG_OK && !mfb_subtype_ok(res.hdr->subtype)) {
+        rc = MFB_ERR_SUBTYPE;
+    }
+    if (rc != RIMG_OK) {
+        load_failed(e, rc);
+        return;
+    }
+    k_memcpy(name, res.hdr->name, sizeof(res.hdr->name));
+    name[sizeof(res.hdr->name)] = '\0';
+    MFB_MARK("load path=%s size=%u crc=0x%08x addr=0x%08x name=%s subtype=%u", res.path,
+             (unsigned)res.file_size, (unsigned)res.crc32, (unsigned)res.entry, name,
+             (unsigned)res.hdr->subtype);
+    handoff(e);
+}
+
 void robco_main(void)
 {
     mfb.phase = MFB_PHASE_INIT;
@@ -452,8 +544,6 @@ void robco_main(void)
     show_menu();
     for (;;) {
         (void)menu_loop();
-        MFB_MARK("choose index=%u name=%s via=%s", menu.sel + 1, cfg.entry[menu.sel].name,
-                 menu.via == MFB_VIA_KEY ? "key" : "timeout");
-        mfb_menu_stop(&menu);
+        boot_selected();
     }
 }

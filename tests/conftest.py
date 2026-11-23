@@ -67,12 +67,10 @@ def retros_image(request):
     return path
 
 
-# Fault images: MFBootAgent built again under build/fault_<name>/ with one define.
 @pytest.fixture(scope="session")
-def fault_image(robco_build, build_dir):
-    def get(name, define):
-        out = os.path.join(build_dir, f"fault_{name}")
-        flags = (f"BUILD={out}", f"EXTRA_CFLAGS=-D{define}=1")
-        return robco_build(ROOT, target=f"{out}/mfboot.img", flags=flags,
-                           image=os.path.join(out, "mfboot.img"))
-    return get
+def fixed_os():
+    """The bytes of the fixed operating image, checked against its pins."""
+    import fixed_os as fo
+    data = fo.build()
+    assert (len(data), fo.sha256(data)) == (fo.SIZE, fo.SHA256)
+    return data

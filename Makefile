@@ -52,6 +52,20 @@ include $(ROBCO_CORE)/mk/host.mk
 # Target tests boot the images built here; keep top-level targets serial.
 .NOTPARALLEL:
 
+# ---- Test operating images ------------------------------------------------
+
+# The test OS, built for tests only, once per operating subtype:
+# build/os/<kind>/testos.img. Not shipped.
+OS_BUILD = $(abspath $(BUILD))/os
+
+.PHONY: testos
+all: testos
+
+testos:
+	$(MAKE) --no-print-directory -C tests/os BUILD=$(OS_BUILD)/uos KIND=uos SUBTYPE=0
+	$(MAKE) --no-print-directory -C tests/os BUILD=$(OS_BUILD)/maint KIND=maint SUBTYPE=2
+	$(MAKE) --no-print-directory -C tests/os BUILD=$(OS_BUILD)/diag KIND=diag SUBTYPE=3
+
 # ---- Python environment for the target tests --------------------------
 
 VENV := .venv
