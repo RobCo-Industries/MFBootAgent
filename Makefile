@@ -25,6 +25,8 @@ PYTHON     ?= python3
 # Every src/*.c builds into the image. PURE_SRCS, one per line and sorted,
 # have no hardware access: the host tests link them.
 PURE_SRCS  := \
+              src/boot.c \
+              src/bootcfg.c \
               src/screen.c \
 
 SRCS       := $(sort $(wildcard src/*.c))

@@ -12,12 +12,17 @@
 #include <robco/bootinfo.h>
 #include <robco/console.h>
 #include <robco/fb.h>
+#include <robco/fs.h>
 #include <robco/irq.h>
 #include <robco/klibc.h>
+#include <robco/part.h>
 #include <robco/rimg.h>
+#include <robco/sd.h>
 #include <robco/tick.h>
 #include <robco/uart.h>
 
+#include "boot.h"
+#include "bootcfg.h"
 #include "mfb.h"
 #include "screen.h"
 
@@ -26,6 +31,15 @@
 #define SCREEN_H 480
 
 mfb_state_t mfb;
+
+/*
+ * The boot volume markers: BOOT.CFG and the default OS path. A volume
+ * with either file is the one this stage boots from.
+ */
+static const char *const vol_markers[] = { MFB_CFG_PATH, MFB_DEFAULT_PATH };
+static fs_boot_t vol;
+static mfb_cfg_t cfg;
+static char cfg_text[MFB_CFG_FILE_MAX];
 
 /* The text the previous stage left on the screen, read before fb_init(). */
 static mfb_cell_t kept[ROBCO_CONSOLE_MAX_ROWS * ROBCO_CONSOLE_MAX_COLS];
@@ -182,9 +196,77 @@ static void entry(void)
              (unsigned)robco_rimg.file_size);
 }
 
+/* No card, or nothing mounts: the error screen, then the idle loop. */
+static void halt_io(const char *what, int rc)
+{
+    char line[MFB_LINE_MAX];
+
+    mfb.error = MFB_ERR_IO;
+    MFB_MARK("error code=io path=" MFB_CFG_PATH " what=%s rc=%d", what, rc);
+    mfb_error_line(line, sizeof(line), MFB_ERR_IO, NULL);
+    mfb_say(line);
+    mfb_say("BOOT HALTED. Fix the card and reboot.");
+    maint_idle();
+}
+
+/* Step 2: the boot volume, by the rule every stage shares. */
+static void mount(void)
+{
+    int rc = sd_init();
+
+    if (rc != 0) {
+        halt_io("sd", rc);
+    }
+    rc = fs_mount_boot("sd", sd_blkdev(), vol_markers,
+                       sizeof(vol_markers) / sizeof(vol_markers[0]), &vol);
+    if (rc != PART_BOOT_OK) {
+        halt_io("fat", rc);
+    }
+    MFB_MARK("mount lba=%u blocks=%u", (unsigned)vol.start_lba, (unsigned)vol.block_count);
+}
+
+/* Step 3: the menu entries from BOOT.CFG, or the one default entry. */
+static void read_config(void)
+{
+    mfb_cfg_report_t r;
+    size_t len = 0;
+    unsigned err_line = 0;
+    char timeout[8];
+    int rc;
+
+    mfb_cfg_default(&cfg);
+    rc = fs_read_file(MFB_CFG_PATH, cfg_text, sizeof(cfg_text), &len);
+    if (rc == FS_ERR_NOENT) {
+        MFB_MARK("config result=missing path=" MFB_CFG_PATH);
+    } else if (rc != 0) {
+        MFB_MARK("config result=bad path=" MFB_CFG_PATH " why=read rc=%d", rc);
+    } else {
+        rc = mfb_cfg_parse(cfg_text, len, &cfg, &r, &err_line);
+        if (rc == MFB_CFG_SYNTAX) {
+            MFB_MARK("config result=bad path=" MFB_CFG_PATH " why=syntax line=%u", err_line);
+        } else if (rc == MFB_CFG_EMPTY) {
+            MFB_MARK("config result=bad path=" MFB_CFG_PATH " why=empty ignored=%u dup=%u "
+                     "unknown=%u bad=%u", r.ignored, r.dup, r.unknown, r.bad);
+        } else {
+            MFB_MARK("config result=ok path=" MFB_CFG_PATH " entries=%u ignored=%u dup=%u "
+                     "unknown=%u bad=%u clamped=%u default_found=%d",
+                     cfg.count, r.ignored, r.dup, r.unknown, r.bad, r.clamped, r.default_found);
+        }
+    }
+    if (cfg.timeout == MFB_TIMEOUT_NONE) {
+        k_snprintf(timeout, sizeof(timeout), "none");
+    } else {
+        k_snprintf(timeout, sizeof(timeout), "%d", cfg.timeout);
+    }
+    MFB_MARK("entries count=%u default=%s timeout=%s", cfg.count, cfg.entry[cfg.def].name,
+             timeout);
+}
+
 void robco_main(void)
 {
     mfb.phase = MFB_PHASE_INIT;
     entry();
+    mount();
+    read_config();
     maint_idle();
 }
