@@ -18,6 +18,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - An error line under the menu when a load fails, and the halted state when no card or volume is usable.
 - The maintenance port with `state`, `dump` and `reboot`.
 - Host tests, QEMU tests on four boards, a test operating image and CI.
+- GPIO buttons on the library's example pins. UP and DOWN repeat while held. The `input` marker adds `gpio buttons repeat live`.
+- A maintenance screen, opened by `M`, BACK, the port's `maint` or `boot_flags` bit 1, with Verify entries, System, Configuration and Reboot. New markers `maint_open`, `maint_action`, `verify_entry`, `verify_done` and `maint_close`.
+- `boot_flags` bit 1 is set when the user opened the maintenance screen, and kept when it arrived set.
+- `docs/USER_MANUAL.md`.
 
 ### Changed
 
