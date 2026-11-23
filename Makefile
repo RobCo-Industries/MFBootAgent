@@ -27,6 +27,7 @@ PYTHON     ?= python3
 PURE_SRCS  := \
               src/boot.c \
               src/bootcfg.c \
+              src/keymap.c \
               src/menu.c \
               src/menulines.c \
 

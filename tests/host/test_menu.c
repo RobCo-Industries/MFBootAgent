@@ -134,7 +134,7 @@ TEST(r_reboots_in_every_state)
 
 TEST(other_keys_only_stop_the_countdown)
 {
-    static const unsigned keys[] = { INPUT_KEY_LEFT, INPUT_KEY_RIGHT, INPUT_KEY_BACK,
+    static const unsigned keys[] = { INPUT_KEY_LEFT, INPUT_KEY_RIGHT,
                                      INPUT_KEY_F1, INPUT_KEY_F4, INPUT_KEY_DIAL_PUSH };
     unsigned i;
 
@@ -160,6 +160,43 @@ TEST(other_keys_only_stop_the_countdown)
         CHECK_EQ(mfb_menu_event(&m, &dial), MFB_ACT_NONE);
         CHECK_EQ(m.counting, 1);
     }
+}
+
+TEST(maintenance_keys)
+{
+    input_event_t ev;
+
+    /* M or m from any backend, BACK from the buttons or the port. */
+    mfb_menu_init(&m, 3, 1, 5, 0);
+    CHECK_EQ(type('m'), MFB_ACT_MAINT);
+    CHECK_EQ(m.why, MFB_WHY_KEY);
+    CHECK_EQ(m.counting, 0);
+    CHECK_EQ(m.stopped, 1);
+    CHECK_EQ(type('M'), MFB_ACT_MAINT);
+    mfb_menu_init(&m, 3, 1, 5, 0);
+    ev = key(INPUT_KEY_BACK, INPUT_PRESS);
+    ev.source = INPUT_SRC_GPIO;
+    CHECK_EQ(mfb_menu_event(&m, &ev), MFB_ACT_MAINT);
+    CHECK_EQ(m.why, MFB_WHY_BUTTON);
+    CHECK_EQ(m.counting, 0);
+    ev.source = INPUT_SRC_SCRIPT;
+    m.why = MFB_WHY_KEY;
+    CHECK_EQ(mfb_menu_event(&m, &ev), MFB_ACT_MAINT);
+    CHECK_EQ(m.why, MFB_WHY_BUTTON);
+    /* ESC on the console is BACK from the serial source: it only stops the countdown. */
+    mfb_menu_init(&m, 3, 1, 5, 0);
+    ev.source = INPUT_SRC_SERIAL;
+    CHECK_EQ(mfb_menu_event(&m, &ev), MFB_ACT_NONE);
+    CHECK_EQ(m.counting, 0);
+    CHECK_EQ(m.sel, 1);
+    /* A held BACK does not open it again. */
+    mfb_menu_init(&m, 3, 1, -1, 0);
+    ev = key(INPUT_KEY_BACK, INPUT_REPEAT);
+    CHECK_EQ(mfb_menu_event(&m, &ev), MFB_ACT_NONE);
+    /* The wake-up NUL is no key: the countdown goes on. */
+    mfb_menu_init(&m, 3, 1, 5, 0);
+    CHECK_EQ(type('\0'), MFB_ACT_NONE);
+    CHECK_EQ(m.counting, 1);
 }
 
 TEST(countdown_to_zero)

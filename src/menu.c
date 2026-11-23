@@ -1,5 +1,7 @@
 #include "menu.h"
 
+#include "keymap.h"
+
 void mfb_menu_init(mfb_menu_t *m, unsigned count, unsigned def, int timeout_s, uint32_t now_ms)
 {
     m->count = count != 0 ? count : 1;
@@ -12,6 +14,7 @@ void mfb_menu_init(mfb_menu_t *m, unsigned count, unsigned def, int timeout_s, u
     m->left_shown = mfb_menu_left(m, now_ms);
     m->dirty = 0;
     m->via = MFB_VIA_NONE;
+    m->why = MFB_WHY_KEY;
 }
 
 static void stop_countdown(mfb_menu_t *m)
@@ -34,48 +37,48 @@ static void select_entry(mfb_menu_t *m, unsigned sel)
 
 int mfb_menu_event(mfb_menu_t *m, const input_event_t *ev)
 {
-    if (ev->type == INPUT_EV_KEY) {
-        if (ev->value == INPUT_RELEASE) {
-            return MFB_ACT_NONE;
-        }
-        stop_countdown(m);
-        switch (ev->code) {
-        case INPUT_KEY_UP:
-            if (m->sel > 0) {
-                select_entry(m, m->sel - 1);
-            }
-            return MFB_ACT_NONE;
-        case INPUT_KEY_DOWN:
-            if (m->sel + 1 < m->count) {
-                select_entry(m, m->sel + 1);
-            }
-            return MFB_ACT_NONE;
-        case INPUT_KEY_SELECT:
-            /* A held ENTER repeats: only the press boots. */
-            if (ev->value != INPUT_PRESS) {
-                return MFB_ACT_NONE;
-            }
-            m->via = MFB_VIA_KEY;
-            return MFB_ACT_BOOT;
-        default:
-            return MFB_ACT_NONE;
-        }
-    }
-    if (ev->type == INPUT_EV_CHAR) {
-        stop_countdown(m);
-        if (ev->code >= '1' && ev->code <= '8') {
-            unsigned n = (unsigned)(ev->code - '1');
+    int k = mfb_key_map(ev);
 
-            if (n < m->count) {
-                select_entry(m, n);
-            }
+    if (k == MFB_K_NONE) {
+        return MFB_ACT_NONE;
+    }
+    stop_countdown(m);
+    if (k >= MFB_K_DIGIT1 && k <= MFB_K_DIGIT8) {
+        unsigned n = (unsigned)(k - MFB_K_DIGIT1);
+
+        if (n < m->count) {
+            select_entry(m, n);
+        }
+        return MFB_ACT_NONE;
+    }
+    switch (k) {
+    case MFB_K_UP:
+        if (m->sel > 0) {
+            select_entry(m, m->sel - 1);
+        }
+        return MFB_ACT_NONE;
+    case MFB_K_DOWN:
+        if (m->sel + 1 < m->count) {
+            select_entry(m, m->sel + 1);
+        }
+        return MFB_ACT_NONE;
+    case MFB_K_SELECT:
+        m->via = MFB_VIA_KEY;
+        return MFB_ACT_BOOT;
+    case MFB_K_REBOOT:
+        return MFB_ACT_REBOOT;
+    case MFB_K_MAINT:
+        m->why = MFB_WHY_KEY;
+        return MFB_ACT_MAINT;
+    case MFB_K_BACK:
+        if (ev->source == INPUT_SRC_SERIAL) {
             return MFB_ACT_NONE;
         }
-        if (ev->code == 'r' || ev->code == 'R') {
-            return MFB_ACT_REBOOT;
-        }
+        m->why = MFB_WHY_BUTTON;
+        return MFB_ACT_MAINT;
+    default:
+        return MFB_ACT_NONE;
     }
-    return MFB_ACT_NONE;
 }
 
 unsigned mfb_menu_left(const mfb_menu_t *m, uint32_t now_ms)
