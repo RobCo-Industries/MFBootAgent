@@ -518,3 +518,38 @@ def test_boot_after_failed_verify(board, mfboot_image, test_os, need_mtools, tmp
         vm.wait_for(CLOSE, timeout=TIMEOUT)
         key(vm, "select")
         check_loaded(vm, test_os["diag"])
+
+
+def system_page(vm):
+    run_item(vm, 1)
+    assert events(vm, "maint_action")[-1]["name"] == "system"
+    return screen_rows(vm)[8:]
+
+
+def test_system_after_unmountable_card(board, mfboot_image, test_os, need_mtools, tmp_path):
+    """A card with no FAT volume: System says not mounted, names the failed step and
+    keeps the last good volume. The good card back: System shows it mounted."""
+    sd = card(tmp_path, os_files(test_os))
+    blank = tmp_path / "blank.img"
+    blank.write_bytes(bytes(16 << 20))
+    with alone(mfboot_image, board, sd) as vm:
+        vm.wait_for(READY, timeout=TIMEOUT)
+        mount = one(vm, "mount")
+        good = f"SD card, block {mount['lba']}, {mount['blocks']} blocks"
+        open_by_key(vm)
+        assert system_page(vm)[3] == f"Boot volume:  {good}"
+        eject_card(vm)
+        insert_card(vm, blank)
+        done = verify(vm, 1)
+        assert (done["result"], done["what"]) == ("io", "fat"), done
+        page = system_page(vm)
+        assert page[3] == f"Boot volume:  not mounted, step fat failed, code {done['rc']}", page
+        assert page[4] == f"Last good:    {good}", page
+        assert page[5].startswith("Boot info:    "), page
+        assert page[9] == "Screen:       started by this stage", page
+        eject_card(vm)
+        insert_card(vm, sd)
+        assert verify(vm, 2)["result"] == "ok", vm.serial
+        page = system_page(vm)
+        assert page[3] == f"Boot volume:  {good}", page
+        assert page[4].startswith("Boot info:    "), page
