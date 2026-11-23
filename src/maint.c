@@ -127,6 +127,16 @@ static int gpio_start(void)
     return rc;
 }
 
+/* Appends ",name" to the live list, or "name" to an empty one, when `on`. */
+static void add_live(char *buf, unsigned size, int on, const char *name)
+{
+    unsigned n = (unsigned)k_strlen(buf);
+
+    if (on) {
+        k_snprintf(buf + n, size - n, "%s%s", n != 0 ? "," : "", name);
+    }
+}
+
 void maint_start(void)
 {
     int mini = uart_mini_init(115200);
@@ -135,6 +145,7 @@ void maint_start(void)
     int gpio;
     int repeat;
     int status;
+    char live[24];
 
     input_init();
     gpio = gpio_start();
@@ -145,10 +156,13 @@ void maint_start(void)
     if (mini == 0) {
         script = input_script_start();
     }
-    MFB_MARK("input serial=%d mini=%d script=%d gpio=%d buttons=%s repeat=%d live=%s%s%s",
+    live[0] = '\0';
+    add_live(live, sizeof(live), serial == 0, "serial");
+    add_live(live, sizeof(live), status == INPUT_GPIO_ACTIVE, "gpio");
+    add_live(live, sizeof(live), script == 0, "script");
+    MFB_MARK("input serial=%d mini=%d script=%d gpio=%d buttons=%s repeat=%d live=%s",
              serial, mini, script, gpio, input_gpio_status_name(status), repeat,
-             serial == 0 ? "serial" : "", status == INPUT_GPIO_ACTIVE ? ",gpio" : "",
-             script == 0 ? ",script" : "");
+             live[0] != '\0' ? live : "none");
 }
 
 void maint_idle(void)
