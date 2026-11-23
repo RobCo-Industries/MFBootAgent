@@ -35,3 +35,7 @@ After a trusted handoff `main.c` adopts the live framebuffer and console with `f
 | `0x00400000`-`0x00FFFFFF` | OS slot, written by the loader |
 
 The image is 72160 bytes. With BSS and stacks it takes 130704 bytes (`mem_size` `0x1FE90`), about 6% of its 2 MiB range. These numbers come from one build with the toolchain on the development machine and change with the toolchain. The link fails if the image outgrows the range. The largest buffers are the console cells of RobCo-Core, 8 KiB, the parser state with the names of up to 410 entry headers, 7 KiB, and the `BOOT.CFG` text, 4 KiB. The code of this stage allocates nothing on a heap.
+
+## The diagnostics image
+
+`diag/` builds `DIAG.SYS` with its own `Makefile` and `robco_config.h`. The pure files hold the decisions and have host tests: `dg_mem.c` the RAM ranges and patterns, `dg_sd.c` the read plan, `dg_menu.c` the menu and the live view exit rule, `dg_fmt.c` the lines, markers and verdicts. `main.c` holds the entry, the screen, the menu loop and the port. Each `t_*.c` file is a thin layer over the drivers for one or more tests. [DIAG.md](DIAG.md) describes the image.

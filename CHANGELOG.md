@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - An error line under the menu when a load fails, and the halted state when no card or volume is usable.
 - The maintenance port with `state`, `dump` and `reboot`.
 - Host tests, QEMU tests on four boards, a test operating image and CI.
+- `DIAG.SYS`, a diagnostics image of subtype 3 with tests of RAM, the SD card, video, audio, input, the timer, the RNG, the clock chip and the I/O expanders. `make sdimage` puts it on the card.
 
 ### Changed
 

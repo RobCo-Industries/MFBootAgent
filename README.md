@@ -14,7 +14,9 @@ What works, in QEMU on `raspi0`, `raspi1ap`, `raspi2b` and `raspi3b`:
 - It checks the chosen image's header and subtype, loads it and hands off with the boot info.
 - A failed load shows an error line and the menu stays.
 
-What does not exist yet: the maintenance mode, the diagnostics image and GPIO button navigation.
+It also builds `DIAG.SYS`, a diagnostics image with nine hardware tests. See [docs/DIAG.md](docs/DIAG.md).
+
+What does not exist yet: the maintenance mode and GPIO button navigation in the agent.
 
 Nothing has been tried on real hardware.
 
@@ -39,6 +41,7 @@ make run BOARD=raspi2b   # boot build/sd.img in QEMU
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the files and the memory use.
 - [docs/BUILD.md](docs/BUILD.md): tools, targets and the card.
 - [docs/TESTING.md](docs/TESTING.md): how the tests start the stage and what they check.
+- [docs/DIAG.md](docs/DIAG.md): the diagnostics image, its tests and markers.
 - [CONTRIBUTING.md](CONTRIBUTING.md) and [CHANGELOG.md](CHANGELOG.md).
 
 ## Licence
