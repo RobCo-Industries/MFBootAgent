@@ -7,10 +7,11 @@ tests/golden/verify_<board>.png.
 
 import os
 import re
+import struct
 import time
 
-from mfboot import (DIAG, MAINT, OFF_ABI, OFF_SUBTYPE, OS_READY, READY, TIMEOUT, UOS, WAIT_CFG,
-                    after, alone, card, char, check_golden, dump, events, flip, key, one,
+from mfboot import (DIAG, MAINT, OFF_ABI, OFF_CRC, OFF_SUBTYPE, OS_READY, READY, TIMEOUT, UOS,
+                    WAIT_CFG, after, alone, card, char, check_golden, dump, events, flip, key, one,
                     os_checks, os_files, patched, screenshot, state)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -387,3 +388,133 @@ def test_flag_opens_at_start(board, chain1_maint_image, mfboot, test_os, need_mt
         key(vm, "select")
         # Kept as received: chain1's cold flag and bit 1.
         check_os_flags(vm, BOOT_COLD | BOOT_MAINT)
+
+
+# Card swaps. QEMU changes the medium in the SD slot through QMP.
+def eject_card(vm):
+    vm.qmp.hmp("eject -f sd0")
+
+
+def insert_card(vm, sd):
+    """Puts the card image `sd` in the slot, in place of any card there."""
+    vm.qmp.execute("blockdev-change-medium", device="sd0", filename=str(sd), format="raw")
+
+
+def verify(vm, n):
+    """Runs Verify entries, the n-th run since the boot, and returns its verify_done."""
+    run_item(vm, 0)
+    wait_count(vm, "verify_done", n)
+    return events(vm, "verify_done")[-1]
+
+
+def other_files(test_os):
+    """Card B: other images on the same paths, AGENT.SYS gone, and a new file."""
+    return {
+        UOS: test_os["diag"],
+        MAINT: test_os["maint"],
+        DIAG: test_os["diag"],
+        "/ROBCO/OLDABI.SYS": test_os["uos"],
+        "/ROBCO/NEW.SYS": test_os["uos"],
+    }
+
+
+OTHER_CFG = b"""[boot]
+default = NEW
+
+[entry NEW]
+path = /ROBCO/NEW.SYS
+"""
+
+# The list read at start from card A, checked against card B.
+OTHER_ROWS = [
+    "#  ENTRY           RESULT      PATH",
+    "1  UOS             OK          /ROBCO/UOS.SYS",
+    "2  MAINT           OK          /ROBCO/MAINT.SYS",
+    "3  DIAG            OK          /ROBCO/DIAG.SYS",
+    "4  AGENT           E01 NOFILE  /ROBCO/AGENT.SYS",
+    "5  OLDABI          OK          /ROBCO/OLDABI.SYS",
+    "5 entries checked: 4 good, 1 failed.",
+]
+
+
+def check_loaded(vm, image):
+    """The boot loaded `image`: the CRC in its header, on the load marker."""
+    vm.wait_for(OS_READY, timeout=TIMEOUT)
+    crc = struct.unpack_from("<I", image, OFF_CRC)[0]
+    assert int(one(vm, "load")["crc"], 16) == crc, one(vm, "load")
+
+
+def test_verify_after_reinsert(board, mfboot_image, test_os, need_mtools, tmp_path):
+    """Eject, verify, put the same card back: the next verify gives the table."""
+    sd = card(tmp_path, verify_files(test_os), cfg=verify_cfg())
+    with alone(mfboot_image, board, sd) as vm:
+        vm.wait_for(READY, timeout=TIMEOUT)
+        open_by_key(vm)
+        eject_card(vm)
+        done = verify(vm, 1)
+        assert (done["result"], done["what"]) == ("io", "sd"), done
+        insert_card(vm, sd)
+        done = verify(vm, 2)
+        assert (done["result"], done["good"], done["failed"]) == ("ok", "1", "4"), vm.serial
+        assert screen_rows(vm)[8:8 + len(VERIFY_ROWS)] == VERIFY_ROWS
+        # Twice in a row without a card, then back again.
+        eject_card(vm)
+        assert verify(vm, 3)["result"] == "io"
+        assert verify(vm, 4)["result"] == "io"
+        insert_card(vm, sd)
+        assert verify(vm, 5)["result"] == "ok", vm.serial
+        char(vm, "q")
+        vm.wait_for(CLOSE, timeout=TIMEOUT)
+        key(vm, "select")
+        check_loaded(vm, test_os["uos"])
+
+
+def test_verify_after_swap(board, mfboot_image, test_os, need_mtools, tmp_path):
+    """Swap to card B: verify checks the list read at start against card B, and a
+    boot loads card B's file."""
+    sd = card(tmp_path, verify_files(test_os), cfg=verify_cfg())
+    other = card(tmp_path, other_files(test_os), cfg=OTHER_CFG, name="other.img")
+    with alone(mfboot_image, board, sd) as vm:
+        vm.wait_for(READY, timeout=TIMEOUT)
+        open_by_key(vm)
+        assert verify(vm, 1)["good"] == "1"
+        eject_card(vm)
+        insert_card(vm, other)
+        done = verify(vm, 2)
+        assert (done["result"], done["good"], done["failed"]) == ("ok", "4", "1"), vm.serial
+        assert screen_rows(vm)[8:8 + len(OTHER_ROWS)] == OTHER_ROWS
+        char(vm, "q")
+        vm.wait_for(CLOSE, timeout=TIMEOUT)
+        key(vm, "select")
+        check_loaded(vm, test_os["diag"])
+
+
+def test_boot_after_swap(board, mfboot_image, test_os, need_mtools, tmp_path):
+    """Swap the card with no verify: the boot mounts card B and loads its file."""
+    sd = card(tmp_path, os_files(test_os))
+    other = card(tmp_path, other_files(test_os), cfg=OTHER_CFG, name="other.img")
+    with alone(mfboot_image, board, sd) as vm:
+        vm.wait_for(READY, timeout=TIMEOUT)
+        open_by_key(vm)
+        eject_card(vm)
+        insert_card(vm, other)
+        char(vm, "q")
+        vm.wait_for(CLOSE, timeout=TIMEOUT)
+        key(vm, "select")
+        check_loaded(vm, test_os["diag"])
+
+
+def test_boot_after_failed_verify(board, mfboot_image, test_os, need_mtools, tmp_path):
+    """Verify with no card, then card B: the boot mounts card B and loads its file."""
+    sd = card(tmp_path, os_files(test_os))
+    other = card(tmp_path, other_files(test_os), cfg=OTHER_CFG, name="other.img")
+    with alone(mfboot_image, board, sd) as vm:
+        vm.wait_for(READY, timeout=TIMEOUT)
+        open_by_key(vm)
+        eject_card(vm)
+        assert verify(vm, 1)["result"] == "io"
+        insert_card(vm, other)
+        char(vm, "q")
+        vm.wait_for(CLOSE, timeout=TIMEOUT)
+        key(vm, "select")
+        check_loaded(vm, test_os["diag"])
