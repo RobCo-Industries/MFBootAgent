@@ -131,6 +131,7 @@ static void init_screen(void)
     int con_ran = 0;
     int rc_fb = -1;
     int rc_con = -1;
+    int grid = -1;
     int kept;
     int fb;
     int con;
@@ -149,8 +150,12 @@ static void init_screen(void)
             rc_con = console_adopt(bi->con_cols, bi->con_rows, bi->con_cx, bi->con_cy,
                                    bi->con_scheme);
         }
+        if (rc_con == 0) {
+            /* console_adopt() takes any grid that fits the screen: the menu needs its minimum. */
+            grid = mfb_menu_grid(bi->con_cols, bi->con_rows);
+        }
     }
-    kept = rc_fb == 0 && rc_con == 0;
+    kept = rc_fb == 0 && rc_con == 0 && grid == MFB_GRID_OK;
     if (kept) {
         fb = 0;
         con = 0;
@@ -158,13 +163,21 @@ static void init_screen(void)
     } else {
         fb = fb_init(SCREEN_W, SCREEN_H, 32);
         con = fb == 0 ? console_init(scheme) : -1;
+        /*
+         * SCREEN_W by SCREEN_H with the 8 by 16 font gives 80 by 30, above
+         * the minimum. The check keeps the menu off the screen if that changes.
+         */
+        if (con == 0 && mfb_menu_grid(console_cols(), console_rows()) != MFB_GRID_OK) {
+            con = -1;
+        }
     }
     mfb.fb_ok = fb == 0 && con == 0;
     MFB_MARK("screen fb=%d console=%d kept=%d unknown=%u scheme=%u path=%s adopt_fb=%s "
-             "adopt_console=%s",
+             "adopt_console=%s grid=%s",
              fb, con, kept, unknown, scheme, kept ? "adopt" : "init",
              adopt_rc(fb_buf, sizeof(fb_buf), fb_ran, rc_fb),
-             adopt_rc(con_buf, sizeof(con_buf), con_ran, rc_con));
+             adopt_rc(con_buf, sizeof(con_buf), con_ran, rc_con),
+             grid < 0 ? "none" : mfb_grid_name(grid));
 }
 
 /* Step 1: entry. Console, trust rule, screen, tick, input and the self check. */
@@ -277,8 +290,9 @@ static void put_row(unsigned row, const char *text, unsigned attr, int to_uart)
         unsigned cols = console_cols();
         unsigned n = (unsigned)k_strlen(text);
 
-        if (n > cols - 1) {
-            n = cols - 1;
+        /* The last column stays blank. cols is at least MFB_MENU_MIN_COLS here. */
+        if (n >= cols) {
+            n = cols != 0 ? cols - 1 : 0;
         }
         console_set_cursor(0, menu_top + row);
         console_set_attr(attr);
@@ -328,29 +342,22 @@ static void draw_status(int to_uart)
  */
 static void place_menu(void)
 {
-    unsigned col, row, rows, i;
+    mfb_place_t p;
+    unsigned col, row, i;
 
     menu_rows = MFB_MENU_ROWS(cfg.count);
     menu_top = 0;
     if (!mfb.fb_ok) {
         return;
     }
-    rows = console_rows();
     console_get_cursor(&col, &row);
-    if (col != 0) {
-        row++;
+    /* The grid is at least MFB_MENU_MIN_ROWS rows: init_screen() checked it. */
+    mfb_menu_place(console_rows(), menu_rows, col, row, &p);
+    for (i = 0; i < p.scroll; i++) {
+        console_set_cursor(0, console_rows() - 1);
+        console_putc('\n');
     }
-    if (row != 0) {
-        row++;
-    }
-    if (row + menu_rows > rows) {
-        for (i = 0; i < row + menu_rows - rows; i++) {
-            console_set_cursor(0, rows - 1);
-            console_putc('\n');
-        }
-        row = rows - menu_rows;
-    }
-    menu_top = row;
+    menu_top = p.top;
 }
 
 /* Clears a menu row. */

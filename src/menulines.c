@@ -52,3 +52,52 @@ void mfb_line_loading(char *buf, size_t size, const mfb_entry_t *e)
 {
     k_snprintf(buf, size, "Loading %s from %s", e->name, e->path);
 }
+
+int mfb_menu_grid(unsigned cols, unsigned rows)
+{
+    if (cols < MFB_MENU_MIN_COLS) {
+        return MFB_GRID_COLS;
+    }
+    if (rows < MFB_MENU_MIN_ROWS) {
+        return MFB_GRID_ROWS;
+    }
+    return MFB_GRID_OK;
+}
+
+const char *mfb_grid_name(int grid)
+{
+    switch (grid) {
+    case MFB_GRID_OK:   return "ok";
+    case MFB_GRID_COLS: return "cols";
+    default:            return "rows";
+    }
+}
+
+void mfb_menu_place(unsigned rows, unsigned menu_rows, unsigned cx, unsigned cy, mfb_place_t *p)
+{
+    unsigned row = cy;
+    unsigned last_top;
+
+    p->top = 0;
+    p->scroll = 0;
+    if (rows == 0 || menu_rows > rows) {
+        return;
+    }
+    last_top = rows - menu_rows;
+    if (row > rows - 1) {
+        row = rows - 1;
+    }
+    /* A partial line ends first, then one blank row follows any earlier text. */
+    if (cx != 0) {
+        row++;
+    }
+    if (row != 0) {
+        row++;
+    }
+    /* row is at most rows + 1 here. */
+    if (row > last_top) {
+        p->scroll = row - last_top;
+        row = last_top;
+    }
+    p->top = row;
+}

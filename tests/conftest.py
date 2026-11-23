@@ -70,6 +70,18 @@ def chain1_nofb_image(robco_build, build_dir):
 
 
 @pytest.fixture(scope="session")
+def chain1_grid_image(robco_build, build_dir):
+    """chain1_grid_image(cols, rows): tests/chain1grid, examples/chain1 with the SD
+    and framebuffer variants that hands over a cols by rows console grid."""
+    def get(cols, rows):
+        out = os.path.join(build_dir, f"chain1grid_{cols}x{rows}")
+        flags = (f"BUILD={out}", f"GRID_COLS={cols}", f"GRID_ROWS={rows}")
+        return robco_build(os.path.join(ROOT, "tests", "chain1grid"), flags=flags,
+                           image=os.path.join(out, "chain1.img"))
+    return get
+
+
+@pytest.fixture(scope="session")
 def chain2_wait_image(robco_build, build_dir):
     """RobCo-Core's examples/chain2 built with CHAIN2_VIDEO_WAIT. Loaded as
     MFBOOT.SYS, it adopts the screen, writes nothing and waits: a

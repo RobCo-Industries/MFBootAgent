@@ -24,8 +24,11 @@ The stage keeps the screen of the previous stage when it can. It follows the "Ad
 |---|---|---|---|
 | Trusted boot info with caps bit 0 set | `bootinfo_fb_info()`, `fb_adopt()`, then `console_adopt()` with the boot info's grid, cursor and scheme | `adopt` | 1 |
 | Trusted, but `bootinfo_fb_info()`, `fb_adopt()` or `console_adopt()` fails | `fb_init(640, 480, 32)` and `console_init()` with the boot info's scheme | `init` | 0 |
+| Trusted, both adopt calls succeed, but the grid is below the minimum | `fb_init(640, 480, 32)` and `console_init()` with the boot info's scheme | `init` | 0 |
 | Trusted with caps bit 0 clear | `fb_init(640, 480, 32)` and `console_init()` with the boot info's scheme | `init` | 0 |
 | Cold | `fb_init(640, 480, 32)` and `console_init()` in green | `init` | 0 |
+
+The menu needs a grid of at least 80 columns and 18 rows. The longest menu line has 79 characters, and the last column stays blank so no line wraps. The menu with 8 entries takes 18 rows. The stage picks its screen before it reads `BOOT.CFG`, so it checks for 8 entries. `console_adopt()` accepts any grid that fits the framebuffer, so the stage checks the adopted grid itself. A smaller grid gets a fresh screen, and the `grid` key of `screen` says why. The fresh 640 by 480 screen gives 80 by 30.
 
 The adopt path writes no pixel. The earlier text stays as it is, and the cursor stays where the previous stage left it. The console does not know the characters of those cells: its `dump` shows them as `#`.
 
@@ -95,7 +98,7 @@ In the order they print.
 |---|---|---|
 | `boot` | `midr soc base board_rev mem entry_mode version` | First line |
 | `handoff` | `trusted` | Result of the trust rule |
-| `screen` | `fb console kept unknown scheme path adopt_fb adopt_console` | `kept=1` when both adopt calls succeeded. `unknown` is the number of adopted cells the console does not know, 0 on the `init` path. `path` is `adopt` or `init`. `adopt_fb` and `adopt_console` are the return codes of the adopt calls, or `none` when a call did not run. |
+| `screen` | `fb console kept unknown scheme path adopt_fb adopt_console grid` | `kept=1` when both adopt calls succeeded. `unknown` is the number of adopted cells the console does not know, 0 on the `init` path. `path` is `adopt` or `init`. `adopt_fb` and `adopt_console` are the return codes of the adopt calls, or `none` when a call did not run. `grid` checks the adopted grid against the menu's minimum: `ok`, `cols` for too few columns, `rows` for too few rows, or `none` when `console_adopt()` did not succeed. |
 | `input` | `serial mini script` | Return codes of the input back ends |
 | `selfcheck` | `rc size` | Result of `rimg_self_check()` |
 | `mount` | `lba blocks` | The boot volume mounted |
@@ -213,7 +216,7 @@ An entry header is `entry`, one or more spaces or tabs, then the name. The stage
 |---|---|
 | Markers for this stage besides `boot`, `handoff`, `ready`, `load`, `error`, `jump` | `screen`, `input`, `selfcheck`, `mount`, `config`, `entries`, `countdown`, `select`, `choose`, `bootinfo`, `idle`, `reboot`, in the format of the spec |
 | `config` counters | The spec's keys, plus `nopath` |
-| `screen` keys | The spec's keys, plus `path`, `adopt_fb` and `adopt_console` |
+| `screen` keys | The spec's keys, plus `path`, `adopt_fb`, `adopt_console` and `grid` |
 | Timeout rule | Seconds 0 to 99, digits only, no key means wait |
 | A file that parses with no usable entry | Treated like a bad file: the one default entry |
 | A boot agent or other non-OS subtype | Refused with code 6, `bounds`, before the ABI and CRC steps |

@@ -3,6 +3,8 @@ RETROS_IMG is set. The first stage loads /ROBCO/MFBOOT.SYS from the card."""
 
 import re
 
+import pytest
+
 from mfboot import (MACH, OS_READY, READY, STAGE_BIOS, TIMEOUT, UOS, WAIT_CFG, WAIT_N1, after,
                     card, dump, events, key, one, os_checks, os_files, render_rows,
                     same_pixels, screenshot, text_rows)
@@ -35,8 +37,8 @@ def test_after_chain1(board, chain1_image, mfboot, test_os, need_mtools, tmp_pat
         screen = one(vm, "screen")
         # chain1 hands over an amber console. Both adopt calls succeed.
         assert (screen["kept"], screen["path"], screen["adopt_fb"], screen["adopt_console"],
-                screen["scheme"], screen["unknown"]) == \
-            ("1", "adopt", "0", "0", "1", str(COLS * ROWS)), screen
+                screen["scheme"], screen["unknown"], screen["grid"]) == \
+            ("1", "adopt", "0", "0", "1", str(COLS * ROWS), "ok"), screen
         # chain1's text stays as pixels above the menu, after a blank row.
         img = screenshot(vm, tmp_path)
         assert same_pixels(text_rows(img, 0, 2), render_rows(["chain1", ""], 1)), vm.serial
@@ -74,10 +76,81 @@ def test_after_chain1_without_fb(board, chain1_nofb_image, mfboot, test_os, need
         assert one(vm, "handoff")["trusted"] == "1"
         screen = one(vm, "screen")
         assert (screen["fb"], screen["console"], screen["kept"], screen["path"],
-                screen["adopt_fb"], screen["adopt_console"]) == \
-            ("0", "0", "0", "init", "none", "none"), screen
+                screen["adopt_fb"], screen["adopt_console"], screen["grid"]) == \
+            ("0", "0", "0", "init", "none", "none", "none"), screen
         _, rows = dump(vm)
         assert rows[0] == TITLE, rows
+
+
+# The smallest grid the menu fits: 79 characters and a blank last column,
+# and 18 rows for the menu with eight entries.
+MIN_COLS, MIN_ROWS = 80, 18
+
+# Eight entries: the tallest menu, MIN_ROWS rows.
+EIGHT_CFG = b"[boot]\ndefault = E1\n" + b"".join(
+    b"\n[entry E%d]\npath = /ROBCO/UOS.SYS\n" % i for i in range(1, 9))
+
+
+def menu_rows_ok(rows, top, count):
+    """The menu text in the console dump from row `top`, every cell known."""
+    assert rows[top] == TITLE, rows
+    for r in rows[top:top + 5 + count + 5]:
+        assert "#" not in r, rows
+    return rows[top + 5:top + 5 + count]
+
+
+@pytest.mark.parametrize("cols,grid_rows,why", [(MIN_COLS, MIN_ROWS - 1, "rows"),
+                                                (MIN_COLS - 1, ROWS, "cols")])
+def test_small_grid_falls_back(board, chain1_grid_image, mfboot, test_os, need_mtools,
+                               tmp_path, cols, grid_rows, why):
+    """A first stage hands over a valid grid too small for the menu: a fresh screen."""
+    image = chain1_grid_image(cols, grid_rows)
+    with after(image, board, chain_card(tmp_path, mfboot, test_os)) as vm:
+        vm.wait_for(READY, timeout=TIMEOUT)
+        assert one(vm, "grid", "chain1")["rc"] == "0", vm.serial
+        assert one(vm, "handoff")["trusted"] == "1"
+        screen = one(vm, "screen")
+        assert (screen["fb"], screen["console"], screen["kept"], screen["path"],
+                screen["adopt_fb"], screen["adopt_console"], screen["grid"],
+                screen["unknown"]) == ("0", "0", "0", "init", "0", "0", why, "0"), screen
+        # The fresh 80 by 30 console: the menu from row 0, every cell known.
+        _, rows = dump(vm)
+        assert len(rows) == ROWS, rows
+        entries = menu_rows_ok(rows, 0, 3)
+        assert entries[0] == "> 1  UOS             DEFAULT  /ROBCO/UOS.SYS", rows
+        assert entries[2] == "  3  DIAG                     /ROBCO/DIAG.SYS", rows
+        key(vm, "select")
+        vm.wait_for(OS_READY, timeout=TIMEOUT)
+        os_checks(vm)
+        assert one(vm, "choose")["name"] == "UOS"
+
+
+def test_minimum_grid_adopted(board, chain1_grid_image, mfboot, test_os, need_mtools,
+                              tmp_path):
+    """A grid exactly the minimum, with eight entries: adopted, and the menu fills it."""
+    image = chain1_grid_image(MIN_COLS, MIN_ROWS)
+    with after(image, board, chain_card(tmp_path, mfboot, test_os, cfg=EIGHT_CFG)) as vm:
+        vm.wait_for(READY, timeout=TIMEOUT)
+        screen = one(vm, "screen")
+        assert (screen["kept"], screen["path"], screen["adopt_console"], screen["grid"],
+                screen["unknown"]) == \
+            ("1", "adopt", "0", "ok", str(MIN_COLS * MIN_ROWS)), screen
+        # chain1's line and the blank row scrolled off: the menu takes every row.
+        _, rows = dump(vm)
+        assert len(rows) == MIN_ROWS, rows
+        entries = menu_rows_ok(rows, 0, 8)
+        assert entries[0].startswith("> 1  E1 ") and entries[0].endswith("/ROBCO/UOS.SYS"), rows
+        assert entries[7].startswith("  8  E8 "), rows
+        assert rows[MIN_ROWS - 1] == "", rows
+        key(vm, "select")
+        vm.wait_for(OS_READY, timeout=TIMEOUT)
+        assert one(vm, "choose")["name"] == "E1"
+        # The test OS expects 80 by 30; the stage hands on the 80 by 18 grid it adopted,
+        # with the cursor on the last row after the menu scrolled up one more row.
+        checks = {m["name"]: m for m in events(vm, "check", "testos")}
+        assert [n for n, m in checks.items() if m["result"] != "pass"] == ["console"], vm.serial
+        info = one(vm, "bootinfo", "testos")
+        assert (info["cx"], info["cy"]) == ("0", str(MIN_ROWS - 1)), info
 
 
 def test_after_chain1_screen(board, chain1_image, mfboot, test_os, need_mtools, tmp_path):
