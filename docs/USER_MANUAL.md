@@ -140,7 +140,13 @@ The stage mounts the card again, then runs every check of a boot on each entry, 
 
 Each check loads the image into the OS slot. Nothing runs there yet, so this is safe. A later boot loads the image again.
 
-With no card, or no usable volume, the action shows one line instead of the table: `ERROR E02 IO: SD card or FAT volume not usable`. A boot then fails with `E02` too, until a later verify finds the card again.
+With no card, or no usable volume, the action shows one line instead of the table: `ERROR E02 IO: SD card or FAT volume not usable`. Put the card back and run the action again. The next run finds the card.
+
+### Changing the card
+
+You can pull the card and put it back, or put in another card, while the menu or this screen shows. Verify entries and every boot from the menu mount the card that is in the slot at that moment. They never read through the old mount.
+
+The stage reads `/ROBCO/BOOT.CFG` once, at start. The menu, the Configuration page and Verify entries keep that list after a card change. Verify entries checks the old list against the new card. A boot loads the chosen entry's path from the new card. To use the entries of a new card, reboot.
 
 ### System
 
@@ -157,7 +163,7 @@ With no card, or no usable volume, the action shows one line instead of the tabl
 
 ### Configuration
 
-The file and how it was used: `in use`, `missing`, `does not read`, a line that does not parse, or `has no usable entry`. In the last four cases the menu has one default entry. Then the default entry, the timeout, the number of entries, and the counts of ignored, duplicate and bad entry sections and of clamped timeouts. [BOOT.md](BOOT.md#counters) defines each count.
+The file as the stage read it at start, and how it was used: `in use`, `missing`, `does not read`, a line that does not parse, or `has no usable entry`. In the last four cases the menu has one default entry. Then the default entry, the timeout, the number of entries, and the counts of ignored, duplicate and bad entry sections and of clamped timeouts. [BOOT.md](BOOT.md#counters) defines each count.
 
 ### Reboot
 

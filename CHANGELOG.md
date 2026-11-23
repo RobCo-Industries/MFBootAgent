@@ -35,6 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Sections without a path no longer take menu slots. Eight of them followed by a valid ninth used to give the default menu.
 - An image with a wrong subtype and a wrong CRC reported `crc`. It now reports `bounds`.
+- Verify entries could not mount the card again after it was pulled out once. Verify entries and each boot now mount the card in the slot, and recover after any failure.
 - A trusted console grid with too few rows for the menu put every menu row on the last row. A grid below 80 by 18 now gets a fresh screen, and the `screen` marker adds `grid`.
 
 ### Removed

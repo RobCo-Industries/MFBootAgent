@@ -74,7 +74,7 @@ The screen takes 18 rows below the text on screen, scrolling like the menu, and 
 
 | Action | Does |
 |---|---|
-| Verify entries | Unmounts and mounts the volume by the boot rule, then runs the header read and `loader_load()` of a boot on every entry, without the jump. The OS slot is the work buffer, since nothing runs there yet. One row per entry, then the counts. A failed mount gives one `E02 IO` line. |
+| Verify entries | Mounts the volume afresh, as in [Card changes](#card-changes), then runs the header read and `loader_load()` of a boot on every entry, without the jump. The OS slot is the work buffer, since nothing runs there yet. One row per entry, then the counts. A failed mount gives one `E02 IO` line. |
 | System | Board, memory, boot volume, trust, `boot_flags` received, version, RobCo-Core pin, screen path |
 | Configuration | The `config` result, default, timeout, entry count, and the `ignored`, `dup`, `bad` and `clamped` counts |
 | Reboot | `reboot source=screen`, then the watchdog, as the port's `reboot` |
@@ -85,6 +85,8 @@ The RobCo-Core pin comes from the CI workflow pin, which `make check-pins` holds
 The countdown boots the default entry no sooner than `timeout` seconds after the menu shows, by `timer_now_ms()`. The menu loop waits for input at most until the next second of the countdown, so the boot starts on the first pass after the time is up. The countdown uses the unsigned difference of two `timer_now_ms()` values, so it also works across the wrap of that counter after 2^32 ms.
 
 ### 5. Load and handoff
+
+Before step 1 the stage mounts the volume afresh, as in [Card changes](#card-changes). A failure there gives `E02 IO` and `ev=remount what=<step> rc=<code>`, and the menu stays.
 
 1. The stage reads the first 0x60 bytes of the file and checks the header, in this order:
 
@@ -102,6 +104,18 @@ The countdown boots the default entry no sooner than `timeout` seconds after the
 3. The stage unmounts the volume, writes `Starting <name>.` and moves the cursor to the next row.
 4. `bootinfo_build()` fills the block at `0x00100000` with stage id 2. The stage sets `boot_flags` bit 1 when the user opened the maintenance screen during this boot, keeps it when it arrived set in a trusted block, and clears it otherwise. Then it writes `boot_dev` (1, SD on EMMC), `boot_part_lba`, `boot_path` and `cmdline`, clears the fallback flag and reseals the block. Other flags stay as the previous stage set them.
 5. `robco_handoff()` enters the image with r2 set to the firmware blob copy.
+
+### Card changes
+
+The SD slot has no card detect, so the stage cannot see a card change. Verify entries and each boot from the menu call `mfb_remount()`:
+
+1. `fs_unmount("sd")`. It syncs the device first and keeps the volume when the sync fails. With the card out, or after a failed `sd_init()`, the sync returns `BLK_ERR_NOMEDIA`.
+2. On a failure, `sd_init()` and then `fs_unmount("sd")` again. A card that answers lets the sync pass. When `sd_init()` fails, the step is `sd`, with its code.
+3. `sd_init()` and `fs_mount_boot()` by the boot rule.
+
+After any failure, `sd_deinit()` leaves the driver not ready. A volume still mounted then fails every read with `BLK_ERR_NOMEDIA`, so it never reads another card. The next call starts from step 1 and recovers once a card answers. RobCo-Core has no call that drops a volume without the sync. Dropping it loses nothing: the stage opens files for reading only.
+
+`BOOT.CFG` is read once, at start. A card change keeps the menu entries and the Configuration page from the start. Verify entries checks those entries against the card in the slot, and a boot loads the entry's path from it. The System page's boot volume and `boot_part_lba` come from the last mount that worked. Re-reading `BOOT.CFG` would change the menu under the user, so a new card's entries need a reboot.
 
 ### 6. Failures
 
