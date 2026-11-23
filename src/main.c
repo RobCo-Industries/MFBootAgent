@@ -247,6 +247,65 @@ int mfb_mount(const char **what, int *rc)
     return *rc == PART_BOOT_OK ? 0 : -1;
 }
 
+/*
+ * Drops the boot volume, whatever card is in the slot now. 0 when
+ * nothing is mounted on return, or the fs_unmount() error.
+ *
+ * fs_unmount() syncs the device first and keeps the volume on a failed
+ * sync. With the card out, or after a failed sd_init(), the driver is
+ * not ready and the sync returns BLK_ERR_NOMEDIA. So on a failure the
+ * driver is set up again and the unmount tried once more: with a card
+ * that answers, the sync passes and the volume goes. The library has no
+ * way to drop a volume without the sync.
+ *
+ * Nothing is lost by dropping the volume: this stage never writes to the
+ * card. It opens files only with FS_READ (fs_read_file(), precheck() and
+ * loader_load()), so FatFs holds no dirty sector.
+ *
+ * When the volume stays, sd_deinit() leaves the driver not ready, so
+ * every read through the old volume fails with BLK_ERR_NOMEDIA. A stale
+ * volume never reads another card.
+ */
+static int release(const char **what, int *rc)
+{
+    *what = "release";
+    *rc = fs_unmount("sd");
+    if (*rc != FS_OK && *rc != FS_ERR_NOVOL) {
+        int sd = sd_init();
+
+        if (sd != 0) {
+            /* No card answers: that is the cause to report. */
+            *what = "sd";
+            *rc = sd;
+            sd_deinit();
+            return -1;
+        }
+        *rc = fs_unmount("sd");
+    }
+    if (*rc == FS_OK || *rc == FS_ERR_NOVOL) {
+        *rc = 0;
+        return 0;
+    }
+    sd_deinit();
+    return -1;
+}
+
+int mfb_remount(const char **what, int *rc)
+{
+    const char *w;
+    int r;
+
+    if (release(what, rc) != 0) {
+        return -1;
+    }
+    if (mfb_mount(what, rc) == 0) {
+        return 0;
+    }
+    /* PART_BOOT_ERR_RELEASE keeps a volume: drop it too. */
+    (void)release(&w, &r);
+    return -1;
+}
+
 /* Step 2: the boot volume. */
 static void mount(void)
 {
@@ -631,6 +690,7 @@ static void boot_selected(void)
     const mfb_entry_t *e = &mfb_cfg.entry[menu.sel];
     char line[MFB_LINE_MAX];
     char name[sizeof(res.hdr->name) + 1];
+    const char *what;
     int rc;
 
     mfb.phase = MFB_PHASE_LOAD;
@@ -639,6 +699,12 @@ static void boot_selected(void)
     redraw();
     mfb_line_loading(line, sizeof(line), e);
     put_row(after_row(MFB_ROW_START_AFTER), line, CONSOLE_ATTR_NORMAL, 1);
+    /* The card may have changed since the boot: mount the one in the slot now. */
+    if (mfb_remount(&what, &rc) != 0) {
+        MFB_MARK("remount what=%s rc=%d", what, rc);
+        load_failed(e, MFB_ERR_IO);
+        return;
+    }
     rc = mfb_check_entry(e, &res);
     if (rc != RIMG_OK) {
         load_failed(e, rc);

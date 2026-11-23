@@ -69,6 +69,12 @@ void mfb_put_row(unsigned top, unsigned row, const char *text, unsigned attr, in
 unsigned mfb_place(unsigned rows);
 /* sd_init() and the boot volume rule. 0, or -1 with the failed step and its code. */
 int mfb_mount(const char **what, int *rc);
+/*
+ * Drops the boot volume and mounts the card in the slot now. 0, or -1
+ * with the failed step ("release", "sd" or "fat") and its code. After a
+ * failure nothing usable is mounted and the next call starts afresh.
+ */
+int mfb_remount(const char **what, int *rc);
 /* Every check a boot runs on an entry, loading it into the OS slot. A rimg_err_t. */
 int mfb_check_entry(const mfb_entry_t *e, loader_result_t *out);
 /* Prints the reboot marker with `source` and restarts the board. */

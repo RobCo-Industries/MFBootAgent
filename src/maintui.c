@@ -103,8 +103,7 @@ static void verify(void)
     int rc;
 
     /* The card may have changed since the boot: mount it afresh. */
-    (void)fs_unmount("sd");
-    if (mfb_mount(&what, &rc) != 0) {
+    if (mfb_remount(&what, &rc) != 0) {
         mfb_error_line(line, sizeof(line), MFB_ERR_IO, NULL);
         out_row(0, line, CONSOLE_ATTR_BRIGHT);
         clear_out(1);
