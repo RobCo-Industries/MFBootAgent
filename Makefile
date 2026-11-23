@@ -1,129 +1,132 @@
-# Makefile for MFBootAgent
-# Second-stage bootloader for RobCo terminal hardware
-# Chains from RETROS-BIOS at address 0x8000
+# MFBootAgent, the second stage of the terminal chain. Built with the
+# RobCo-Core library in external/robco-core.
+#
+#   make                      build/mfboot.img and the test operating images
+#   make test                 host tests, then target tests on every board
+#   make test BOARD=raspi0    the same, target tests on one board
+#   make test-host            host unit tests and the pin check
+#   make test-target          QEMU target tests (BOARD=all by default).
+#                             RETROS_IMG=<RETROS.IMG> adds the whole-chain tests.
+#   make sdimage              build/sd.img: MFBOOT.SYS, BOOT.CFG and the test
+#                             operating images. FIRST=<RETROS.IMG> adds a first
+#                             stage and its config.txt
+#   make run BOARD=raspi2b    boot build/sd.img in QEMU on this terminal
+#                             (WINDOW=1 also opens the display window)
+#   make check-pins           CI workflow pins and doc links match the submodule
+#   make clean
 
-# Default target
-TARGET ?= BCM2835
+ROBCO_CORE := external/robco-core
+IMAGE      := mfboot
+LINK_ADDR  := 0x00200000
+CONFIG_H   := src/robco_config.h
+BUILD      ?= build
+PYTHON     ?= python3
 
-# Toolchain
-PREFIX ?= arm-none-eabi-
-CC = $(PREFIX)gcc
-AS = $(PREFIX)as
-LD = $(PREFIX)ld
-OBJCOPY = $(PREFIX)objcopy
-OBJDUMP = $(PREFIX)objdump
+# Every src/*.c builds into the image. PURE_SRCS, one per line and sorted,
+# have no hardware access: the host tests link them.
+PURE_SRCS  := \
+              src/boot.c \
+              src/bootcfg.c \
+              src/menu.c \
+              src/menulines.c \
 
-# Directories
-SRC_DIR = src
-INC_DIR = include
-BUILD_DIR = build
-DRIVER_DIR = $(SRC_DIR)/drivers
-PAYLOAD_DIR = payloads
+SRCS       := $(sort $(wildcard src/*.c))
 
-# Architecture flags
-ifeq ($(TARGET),BCM2835)
-    # RPi0/1: ARM1176JZF-S (ARMv6)
-    ARCH_FLAGS = -mcpu=arm1176jzf-s -mfpu=vfp -mfloat-abi=hard
-    DEFINES = -DBCM2835
-else ifeq ($(TARGET),BCM2836)
-    # RPi2: Cortex-A7 (ARMv7-A)
-    ARCH_FLAGS = -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard
-    DEFINES = -DBCM2836
-else ifeq ($(TARGET),BCM2837)
-    # RPi3: Cortex-A53 in 32-bit mode (ARMv7-A compatible)
-    ARCH_FLAGS = -mcpu=cortex-a53 -mfpu=neon-fp-armv8 -mfloat-abi=hard
-    DEFINES = -DBCM2837
+# `make sdimage`. Set before the include: robco.mk reads them. The card
+# holds MFBOOT.SYS, the default BOOT.CFG and the test operating images.
+OS_BUILD       = $(abspath $(BUILD))/os
+SDIMAGE_MIB   ?= 64
+SDIMAGE_DEPS  := $(BUILD)/$(IMAGE).img testos
+SDIMAGE_FILES := boot/BOOT.CFG:ROBCO/BOOT.CFG $(BUILD)/$(IMAGE).img:ROBCO/MFBOOT.SYS \
+                 $(OS_BUILD)/uos/testos.img:ROBCO/UOS.SYS \
+                 $(OS_BUILD)/maint/testos.img:ROBCO/MAINT.SYS \
+                 $(OS_BUILD)/diag/testos.img:ROBCO/DIAG.SYS
+
+# Host unit tests: tests/host/test_<name>.c with the pure files.
+HOST_TEST_DIR := tests/host
+HOST_SRCS     := $(PURE_SRCS)
+HOST_INCLUDES := src
+
+ifeq ($(wildcard $(ROBCO_CORE)/mk/robco.mk),)
+$(error $(ROBCO_CORE) is empty: run git submodule update --init)
 endif
 
-# Compiler flags
-CFLAGS = -std=gnu11 -Wall -Wextra -Werror -O2 -nostdlib -nostartfiles -ffreestanding
-CFLAGS += $(ARCH_FLAGS) $(DEFINES)
-CFLAGS += -I$(INC_DIR)
+.DEFAULT_GOAL := all
+include $(ROBCO_CORE)/mk/robco.mk
+include $(ROBCO_CORE)/mk/host.mk
 
-# Assembler flags
-ASFLAGS = $(ARCH_FLAGS)
+# Target tests boot the images built here; keep top-level targets serial.
+.NOTPARALLEL:
 
-# Linker flags
-LDFLAGS = -T linker.ld -nostdlib
-LIBGCC = $(shell $(CC) $(ARCH_FLAGS) -print-libgcc-file-name)
+# ---- Test operating images ------------------------------------------------
 
-# Source files
-C_SOURCES = $(wildcard $(SRC_DIR)/*.c) $(wildcard $(DRIVER_DIR)/*.c) $(wildcard $(PAYLOAD_DIR)/*.c)
-ASM_SOURCES = $(wildcard $(SRC_DIR)/*.S)
+# The test OS, built for tests only, once per operating subtype:
+# build/os/<kind>/testos.img. Not shipped.
+.PHONY: testos
+all: testos
 
-# Object files
-C_OBJECTS = $(patsubst %.c,$(BUILD_DIR)/%.o,$(notdir $(C_SOURCES)))
-ASM_OBJECTS = $(patsubst $(SRC_DIR)/%.S,$(BUILD_DIR)/%.o,$(ASM_SOURCES))
-OBJECTS = $(ASM_OBJECTS) $(C_OBJECTS)
+testos:
+	$(MAKE) --no-print-directory -C tests/os BUILD=$(OS_BUILD)/uos KIND=uos SUBTYPE=0
+	$(MAKE) --no-print-directory -C tests/os BUILD=$(OS_BUILD)/maint KIND=maint SUBTYPE=2
+	$(MAKE) --no-print-directory -C tests/os BUILD=$(OS_BUILD)/diag KIND=diag SUBTYPE=3
 
-# Output files
-BOOTLOADER_ELF = $(BUILD_DIR)/mfbootagent.elf
-BOOTLOADER_IMG = $(BUILD_DIR)/mfbootagent.img
-BOOTLOADER_LST = $(BUILD_DIR)/mfbootagent.list
+$(OS_BUILD)/%/testos.img: testos
+	@test -f $@
 
-.PHONY: all clean bcm2835 bcm2836 bcm2837
+# ---- Python environment for the target tests --------------------------
 
-all: $(BOOTLOADER_IMG)
+VENV := .venv
 
-# Build for specific targets
-bcm2835:
-	$(MAKE) TARGET=BCM2835
+.PHONY: venv
+venv: $(VENV)/.installed
 
-bcm2836:
-	$(MAKE) TARGET=BCM2836
+$(VENV)/.installed: $(ROBCO_CORE)/tests/requirements.txt
+	$(PYTHON) -m venv $(VENV)
+	$(VENV)/bin/pip install -q -r $<
+	touch $@
 
-bcm2837:
-	$(MAKE) TARGET=BCM2837
+# ---- Tests ------------------------------------------------------------
 
-# Create build directory
-$(BUILD_DIR):
-	mkdir -p $(BUILD_DIR)
+BOARD ?= all
 
-# Compile C files from src/
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c $< -o $@
+.PHONY: test test-target check-pins check-doc-links
+test: test-host
+	$(MAKE) test-target
 
-# Compile C files from src/drivers/
-$(BUILD_DIR)/%.o: $(DRIVER_DIR)/%.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c $< -o $@
+test-target: all venv
+	$(VENV)/bin/pytest tests -v --board $(BOARD) --build-dir $(BUILD) \
+	    $(if $(RETROS_IMG),--retros-img $(abspath $(RETROS_IMG)))
 
-# Compile C files from payloads/
-$(BUILD_DIR)/%.o: $(PAYLOAD_DIR)/%.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c $< -o $@
+# DOC_ROOT: the tree whose Markdown links check-doc-links reads.
+DOC_ROOT ?= .
 
-# Assemble assembly files
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.S | $(BUILD_DIR)
-	$(CC) $(ASFLAGS) -c $< -o $@
+check-pins: check-doc-links
+	$(ROBCO_CORE)/tools/check_pins.sh .github/workflows/ci.yml
 
-# Link
-$(BOOTLOADER_ELF): $(OBJECTS)
-	$(LD) $(LDFLAGS) $(OBJECTS) $(LIBGCC) -o $@
+check-doc-links:
+	$(ROBCO_CORE)/tools/check_doc_links.sh $(DOC_ROOT) external/robco-core
 
-# Create binary image
-$(BOOTLOADER_IMG): $(BOOTLOADER_ELF)
-	$(OBJCOPY) $< -O binary $@
-	$(OBJDUMP) -D $(BOOTLOADER_ELF) > $(BOOTLOADER_LST)
-	@echo "====================================="
-	@echo "Build complete: $(BOOTLOADER_IMG)"
-	@echo "Target: $(TARGET)"
-	@echo "Size: $$(stat -f%z $@ 2>/dev/null || stat -c%s $@) bytes"
-	@echo "====================================="
+# Host unit tests come from mk/host.mk. The pin check runs first.
+test-host: check-pins
 
-# Clean
-clean:
-	rm -rf $(BUILD_DIR)
+# ---- Cards and QEMU -----------------------------------------------------
 
-# Help
-help:
-	@echo "MFBootAgent Makefile"
-	@echo ""
-	@echo "Targets:"
-	@echo "  all (default) - Build for BCM2835 (RPi0/1)"
-	@echo "  bcm2835      - Build for BCM2835 (RPi0/1)"
-	@echo "  bcm2836      - Build for BCM2836 (RPi2)"
-	@echo "  bcm2837      - Build for BCM2837 (RPi3)"
-	@echo "  clean        - Remove build artifacts"
-	@echo "  help         - Show this help"
-	@echo ""
-	@echo "The output file is: $(BOOTLOADER_IMG)"
-	@echo "This should be loaded by RETROS-BIOS at 0x8000."
+# FIRST=<RETROS.IMG> puts a first stage on the card as RETROS.IMG, with
+# its config.txt, so the card boots the whole chain.
+sdimage-stage::
+	$(if $(FIRST),$(ROBCO_CORE)/tools/mkbootdir.sh $(FIRST) $(SDIMAGE_STAGE) \
+	    --kernel-name RETROS.IMG --no-firmware)
+
+# Alone, a two-word image at 0x8000 jumps to MFBootAgent at its link address.
+$(BUILD)/tramp.img:
+	@mkdir -p $(dir $@)
+	$(PYTHON) -c "import struct, sys; open(sys.argv[1], 'wb').write(struct.pack('<II', 0xE51FF004, $(LINK_ADDR)))" $@
+
+.PHONY: run
+comma := ,
+RUN_ALONE := $(BUILD)/tramp.img --qemu-arg=-device \
+             --qemu-arg=loader$(comma)file=$(BUILD)/$(IMAGE).img$(comma)addr=$(LINK_ADDR)$(comma)force-raw=on
+RUN_BOARD := $(if $(filter all,$(BOARD)),raspi2b,$(BOARD))
+run: sdimage $(BUILD)/tramp.img
+	PYTHONPATH=$(ROBCO_CORE)/tests $(PYTHON) -m harness.run $(if $(FIRST),$(FIRST),$(RUN_ALONE)) \
+	    --board $(RUN_BOARD) --sd $(BUILD)/sd.img --serial2 pty $(if $(filter 1,$(WINDOW)),--window)

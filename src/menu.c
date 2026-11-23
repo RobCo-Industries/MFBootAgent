@@ -1,96 +1,150 @@
-// src/menu.c - Interactive Boot Selection
+#include "menu.h"
 
-#include "mfboot.h"
-#include "terminal.h"
-#include "hardware.h"
+void mfb_menu_init(mfb_menu_t *m, unsigned count, unsigned def, int timeout_s, uint32_t now_ms)
+{
+    m->count = count != 0 ? count : 1;
+    m->sel = def < m->count ? def : 0;
+    m->drawn_sel = m->sel;
+    m->counting = timeout_s >= 0;
+    m->stopped = 0;
+    m->start_ms = now_ms;
+    m->timeout_ms = timeout_s > 0 ? (uint32_t)timeout_s * 1000u : 0;
+    m->left_shown = mfb_menu_left(m, now_ms);
+    m->dirty = 0;
+    m->via = MFB_VIA_NONE;
+}
 
-void display_boot_menu(boot_entry_t* entries) {
-    int selection = 0;
-    int num_entries = count_boot_entries(entries);
-    
-    while (1) {
-        term_clear();
-        term_print("═══════════════════════════════════════\n");
-        term_print("    RobCo Industries Boot Selection    \n");
-        term_print("═══════════════════════════════════════\n\n");
-        
-        for (int i = 0; i < num_entries; i++) {
-            if (i == selection) {
-                term_print("> ");
-                term_set_color(COLOR_AMBER);
-            } else {
-                term_print("  ");
-            }
-            
-            term_printf("[%d] %s", i+1, entries[i].name);
-            
-            // Show device type
-            switch(entries[i].type) {
-                case BOOT_TYPE_UOS:
-                    term_print(" (Unified Operating System)");
-                    break;
-                case BOOT_TYPE_PIPOS:
-                    term_print(" (PIP-OS v7.1.0.8)");
-                    break;
-                case BOOT_TYPE_MAINTENANCE:
-                    term_print(" (Maintenance Mode)");
-                    break;
-                case BOOT_TYPE_DIAGNOSTIC:
-                    term_print(" (Hardware Diagnostics)");
-                    break;
-            }
-            
-            term_set_color(COLOR_GREEN);
-            term_print("\n");
+static void stop_countdown(mfb_menu_t *m)
+{
+    if (m->counting) {
+        m->counting = 0;
+        m->stopped = 1;
+        m->left_shown = 0;
+        m->dirty |= MFB_DIRTY_STATUS;
+    }
+}
+
+static void select_entry(mfb_menu_t *m, unsigned sel)
+{
+    if (sel != m->sel) {
+        m->sel = sel;
+        m->dirty |= MFB_DIRTY_SEL;
+    }
+}
+
+int mfb_menu_event(mfb_menu_t *m, const input_event_t *ev)
+{
+    if (ev->type == INPUT_EV_KEY) {
+        if (ev->value == INPUT_RELEASE) {
+            return MFB_ACT_NONE;
         }
-        
-        term_print("\n[M] Maintenance Mode\n");
-        term_print("[H] Holotape Boot\n");
-        term_print("[R] Reboot\n");
-        term_print("\nUse Arrow Keys to select, Enter to boot\n");
-        
-        char key = wait_for_key();
-        
-        switch(key) {
-            case KEY_UP:
-                selection = (selection - 1 + num_entries) % num_entries;
-                break;
-            case KEY_DOWN:
-                selection = (selection + 1) % num_entries;
-                break;
-            case KEY_ENTER:
-            case '\n':
-                boot_selected(&entries[selection]);
-                break;
-            case 'M':
-            case 'm':
-                enter_maintenance_mode();
-                break;
-            case 'H':
-            case 'h':
-                load_holotape_boot();
-                break;
-            case 'R':
-            case 'r':
-                term_print("\nRebooting...\n");
-                delay_ms(1000);
-                // Would trigger reboot here
-                break;
-            case '1':
-            case '2':
-            case '3':
-            case '4':
-            case '5':
-            case '6':
-            case '7':
-            case '8':
-                {
-                    int idx = key - '1';
-                    if (idx >= 0 && idx < num_entries) {
-                        boot_selected(&entries[idx]);
-                    }
-                }
-                break;
+        stop_countdown(m);
+        switch (ev->code) {
+        case INPUT_KEY_UP:
+            if (m->sel > 0) {
+                select_entry(m, m->sel - 1);
+            }
+            return MFB_ACT_NONE;
+        case INPUT_KEY_DOWN:
+            if (m->sel + 1 < m->count) {
+                select_entry(m, m->sel + 1);
+            }
+            return MFB_ACT_NONE;
+        case INPUT_KEY_SELECT:
+            /* A held ENTER repeats: only the press boots. */
+            if (ev->value != INPUT_PRESS) {
+                return MFB_ACT_NONE;
+            }
+            m->via = MFB_VIA_KEY;
+            return MFB_ACT_BOOT;
+        default:
+            return MFB_ACT_NONE;
         }
     }
+    if (ev->type == INPUT_EV_CHAR) {
+        stop_countdown(m);
+        if (ev->code >= '1' && ev->code <= '8') {
+            unsigned n = (unsigned)(ev->code - '1');
+
+            if (n < m->count) {
+                select_entry(m, n);
+            }
+            return MFB_ACT_NONE;
+        }
+        if (ev->code == 'r' || ev->code == 'R') {
+            return MFB_ACT_REBOOT;
+        }
+    }
+    return MFB_ACT_NONE;
+}
+
+unsigned mfb_menu_left(const mfb_menu_t *m, uint32_t now_ms)
+{
+    uint32_t elapsed = now_ms - m->start_ms;
+
+    if (!m->counting || elapsed >= m->timeout_ms) {
+        return 0;
+    }
+    return (unsigned)((m->timeout_ms - elapsed + 999u) / 1000u);
+}
+
+int mfb_menu_tick(mfb_menu_t *m, uint32_t now_ms)
+{
+    unsigned left;
+
+    if (!m->counting) {
+        return MFB_ACT_NONE;
+    }
+    if (now_ms - m->start_ms >= m->timeout_ms) {
+        m->counting = 0;
+        m->left_shown = 0;
+        m->dirty |= MFB_DIRTY_STATUS;
+        m->via = MFB_VIA_TIMEOUT;
+        return MFB_ACT_BOOT;
+    }
+    left = mfb_menu_left(m, now_ms);
+    if (left != m->left_shown) {
+        m->left_shown = left;
+        m->dirty |= MFB_DIRTY_STATUS;
+    }
+    return MFB_ACT_NONE;
+}
+
+uint32_t mfb_menu_wait_ms(const mfb_menu_t *m, uint32_t now_ms)
+{
+    uint32_t elapsed = now_ms - m->start_ms;
+    uint32_t rem;
+    uint32_t next;
+
+    if (!m->counting) {
+        return 1000u;
+    }
+    if (elapsed >= m->timeout_ms) {
+        return 1u;
+    }
+    rem = m->timeout_ms - elapsed;
+    next = rem % 1000u;
+    if (next == 0) {
+        next = 1000u;
+    }
+    return next;
+}
+
+void mfb_menu_stop(mfb_menu_t *m)
+{
+    stop_countdown(m);
+}
+
+unsigned mfb_menu_take(mfb_menu_t *m, unsigned *old_sel)
+{
+    unsigned d = m->dirty;
+
+    m->dirty = 0;
+    if (d & MFB_DIRTY_SEL) {
+        if (old_sel != 0) {
+            *old_sel = m->drawn_sel;
+        }
+        m->drawn_sel = m->sel;
+    }
+    return d;
 }
