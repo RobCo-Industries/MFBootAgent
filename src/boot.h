@@ -52,6 +52,19 @@ void mfb_error_line(char *buf, size_t size, int err, const char *name);
 int mfb_subtype_ok(uint32_t subtype);
 
 /*
+ * The header steps this stage runs before loader_load(), on the first
+ * `len` bytes of a file of `file_size` bytes. loader_load() offers no
+ * hook between its header steps, so main.c reads the header first.
+ * Steps 1 to 3 of IMAGE_FORMAT.md (magic, version, size) come first and
+ * return their code. Then the subtype: anything but 0, 2 or 3 returns
+ * MFB_ERR_SUBTYPE, before the slot bounds, the ABI and the CRC. Then the
+ * bounds and ABI steps return their code. Returns RIMG_OK when all of
+ * these pass, and also for fewer than 0x60 bytes: loader_load() then
+ * reports the short file itself.
+ */
+int mfb_check_os_header(const void *head, size_t len, uint32_t file_size);
+
+/*
  * Writes the fields this stage owns as the loader of the next stage into
  * a block bootinfo_build() made, then reseals it: boot_dev, boot_part_lba,
  * boot_path and cmdline, each cut to its array and NUL-padded. It clears

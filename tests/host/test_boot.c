@@ -73,6 +73,82 @@ TEST(operating_subtypes_only)
     CHECK(!mfb_subtype_ok(0xFFFFFFFFu));
 }
 
+/* The first 0x60 bytes of a good UOS image of 0x1000 bytes linked into the OS slot. */
+static uint8_t head[RIMG_META_OFFSET];
+#define FILE_SIZE 0x1000u
+
+static rimg_header_t *good_head(uint32_t subtype)
+{
+    rimg_header_t *h = (rimg_header_t *)(void *)(head + RIMG_HDR_OFFSET);
+
+    memset(head, 0, sizeof(head));
+    memcpy(h->magic, RIMG_MAGIC_BOOT, 8);
+    h->hdr_version = RIMG_HDR_VERSION;
+    h->hdr_size = RIMG_HDR_SIZE;
+    h->load_addr = MFB_OS_SLOT_BASE;
+    h->file_size = FILE_SIZE;
+    h->mem_size = FILE_SIZE;
+    h->abi_version = MFB_OS_ABI << 16;
+    h->subtype = subtype;
+    return h;
+}
+
+TEST(header_check_passes_operating_images)
+{
+    static const uint32_t good[] = { RIMG_BOOT_UOS, RIMG_BOOT_MAINT, RIMG_BOOT_DIAG };
+    unsigned i;
+
+    for (i = 0; i < sizeof(good) / sizeof(good[0]); i++) {
+        good_head(good[i]);
+        CHECK_EQ(mfb_check_os_header(head, sizeof(head), FILE_SIZE), RIMG_OK);
+    }
+}
+
+TEST(header_check_refuses_other_subtypes_before_bounds_and_abi)
+{
+    static const uint32_t bad[] = { 1, RIMG_BOOT_AGENT, RIMG_BOOT_BIOS, RIMG_BOOT_PIPOS,
+                                    RIMG_BOOT_EXAMPLE, 8, 0xFFFFFFFFu };
+    unsigned i;
+
+    for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        rimg_header_t *h = good_head(bad[i]);
+
+        CHECK_EQ(mfb_check_os_header(head, sizeof(head), FILE_SIZE), MFB_ERR_SUBTYPE);
+        /* A wrong ABI and a load address outside the slot come later. */
+        h->abi_version = 9u << 16;
+        h->load_addr = 0x00200000u;
+        CHECK_EQ(mfb_check_os_header(head, sizeof(head), FILE_SIZE), MFB_ERR_SUBTYPE);
+    }
+    CHECK_EQ(mfb_err_code(MFB_ERR_SUBTYPE), 6);
+    CHECK_STR(mfb_err_name(MFB_ERR_SUBTYPE), "bounds");
+}
+
+TEST(header_check_steps_one_to_three_come_first)
+{
+    rimg_header_t *h = good_head(RIMG_BOOT_AGENT);
+
+    h->magic[0] = 'X';
+    CHECK_EQ(mfb_check_os_header(head, sizeof(head), FILE_SIZE), RIMG_E_MAGIC);
+    h = good_head(RIMG_BOOT_AGENT);
+    h->hdr_version = 2;
+    CHECK_EQ(mfb_check_os_header(head, sizeof(head), FILE_SIZE), RIMG_E_VERSION);
+    good_head(RIMG_BOOT_AGENT);
+    CHECK_EQ(mfb_check_os_header(head, sizeof(head), FILE_SIZE + 4), RIMG_E_SIZE);
+}
+
+TEST(header_check_then_bounds_and_abi)
+{
+    rimg_header_t *h = good_head(RIMG_BOOT_UOS);
+
+    h->load_addr = 0x00410000u;
+    CHECK_EQ(mfb_check_os_header(head, sizeof(head), FILE_SIZE), RIMG_E_BOUNDS);
+    h = good_head(RIMG_BOOT_UOS);
+    h->abi_version = 3u << 16;
+    CHECK_EQ(mfb_check_os_header(head, sizeof(head), FILE_SIZE), RIMG_E_ABI);
+    /* A short read is left to the loader. */
+    CHECK_EQ(mfb_check_os_header(head, RIMG_META_OFFSET - 1, FILE_SIZE), RIMG_OK);
+}
+
 TEST(set_boot_fields)
 {
     robco_bootinfo_t bi;

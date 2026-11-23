@@ -81,6 +81,32 @@ int mfb_subtype_ok(uint32_t subtype)
     return subtype == RIMG_BOOT_UOS || subtype == RIMG_BOOT_MAINT || subtype == RIMG_BOOT_DIAG;
 }
 
+int mfb_check_os_header(const void *head, size_t len, uint32_t file_size)
+{
+    const rimg_expect_t expect = {
+        .magic = RIMG_MAGIC_BOOT,
+        .slot_base = MFB_OS_SLOT_BASE,
+        .slot_size = MFB_OS_SLOT_SIZE,
+        .abi_major = MFB_OS_ABI,
+        .file_size = file_size,
+    };
+    const rimg_header_t *h;
+    int rc;
+
+    if (len < RIMG_META_OFFSET) {
+        return RIMG_OK;
+    }
+    rc = rimg_check_header(head, file_size, &expect);
+    if (rc == RIMG_E_MAGIC || rc == RIMG_E_VERSION || rc == RIMG_E_SIZE || rc == RIMG_E_IO) {
+        return rc;
+    }
+    h = (const rimg_header_t *)(const void *)((const uint8_t *)head + RIMG_HDR_OFFSET);
+    if (!mfb_subtype_ok(h->subtype)) {
+        return MFB_ERR_SUBTYPE;
+    }
+    return rc;
+}
+
 static void put_string(char *dst, size_t size, const char *src)
 {
     size_t n = src != NULL ? k_strlen(src) : 0;

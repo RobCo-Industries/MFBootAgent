@@ -501,6 +501,31 @@ static void handoff(const mfb_entry_t *e)
     robco_handoff(res.entry, bi, bi->fdt_size != 0 ? bi->fdt_addr : 0);
 }
 
+/*
+ * The header steps up to the subtype check, before loader_load() trusts
+ * anything else in the image. Reads the first 0x60 bytes of the file.
+ * A file that does not open or read returns RIMG_OK: loader_load() then
+ * reports nofile or io in its own words.
+ */
+static int precheck(const char *path)
+{
+    static fs_file_t f;
+    uint8_t head[RIMG_META_OFFSET];
+    int64_t size;
+    int n;
+
+    if (fs_open(&f, path, FS_READ) != 0) {
+        return RIMG_OK;
+    }
+    size = fs_size(&f);
+    n = fs_read(&f, head, sizeof(head));
+    (void)fs_close(&f);
+    if (size < 0 || size > 0xFFFFFFFF || n < 0) {
+        return RIMG_OK;
+    }
+    return mfb_check_os_header(head, (size_t)n, (uint32_t)size);
+}
+
 /* Step 5: loads the selected entry into the OS slot. Returns only when it fails. */
 static void boot_selected(void)
 {
@@ -517,9 +542,9 @@ static void boot_selected(void)
     redraw();
     mfb_line_loading(line, sizeof(line), e);
     put_row(after_row(MFB_ROW_START_AFTER), line, CONSOLE_ATTR_NORMAL, 1);
-    rc = loader_load(e->path, &slot, &expect, &res);
-    if (rc == RIMG_OK && !mfb_subtype_ok(res.hdr->subtype)) {
-        rc = MFB_ERR_SUBTYPE;
+    rc = precheck(e->path);
+    if (rc == RIMG_OK) {
+        rc = loader_load(e->path, &slot, &expect, &res);
     }
     if (rc != RIMG_OK) {
         load_failed(e, rc);

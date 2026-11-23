@@ -11,9 +11,9 @@ import time
 import pytest
 
 from mfboot import (IDLE, MAINT, OFF_ABI, OFF_FILE_SIZE, OFF_HDR_VERSION, OFF_LOAD_ADDR,
-                    OFF_MAGIC, OFF_SUBTYPE, OS_READY, READY, TIMEOUT, UOS, WAIT_CFG, alone, card,
-                    check_golden, dump, events, flip, key, one, os_checks, patched, screenshot,
-                    state)
+                    OFF_MAGIC, OFF_SUBTYPE, OS_READY, READY, SUBTYPE, TIMEOUT, UOS, WAIT_CFG,
+                    alone, card, check_golden, dump, events, flip, key, one, os_checks, patched,
+                    screenshot, state)
 
 ERROR_LINE = {
     "nofile": "ERROR E01 NOFILE: UOS: file not found",
@@ -24,8 +24,11 @@ ERROR_LINE = {
     "abi": "ERROR E07 ABI: UOS: wrong ABI version",
     "crc": "ERROR E08 CRC: UOS: image CRC does not match",
     "agent": "ERROR E06 BOUNDS: UOS: not an operating image",
+    "agent_crc": "ERROR E06 BOUNDS: UOS: not an operating image",
+    "agent_abi": "ERROR E06 BOUNDS: UOS: not an operating image",
+    "subtype1": "ERROR E06 BOUNDS: UOS: not an operating image",
 }
-CODE = {"agent": "bounds"}
+CODE = {"agent": "bounds", "agent_crc": "bounds", "agent_abi": "bounds", "subtype1": "bounds"}
 
 
 def bad_image(good, case):
@@ -44,6 +47,14 @@ def bad_image(good, case):
     if case == "agent":
         # A sealed boot agent image: MFBootAgent never loads another boot agent.
         return patched(good, OFF_SUBTYPE, "<I", 4)
+    if case == "agent_crc":
+        # The subtype check comes before the CRC: bounds, not crc.
+        return patched(good, OFF_SUBTYPE, "<I", 4, seal=False)
+    if case == "agent_abi":
+        # And before the ABI step.
+        return patched(patched(good, OFF_ABI, "<I", 3 << 16), OFF_SUBTYPE, "<I", 4)
+    if case == "subtype1":
+        return patched(good, OFF_SUBTYPE, "<I", 1)
     raise ValueError(case)
 
 
@@ -148,3 +159,17 @@ def test_reboot_from_maintenance_port(board, mfboot_image):
         vm.wait_for("ev=reboot source=maint", timeout=TIMEOUT)
         vm.wait_for(re.compile(r"(@RC stage=bootagent ev=boot [^\n]*\n[\s\S]*){2}"),
                     timeout=TIMEOUT)
+
+
+@pytest.mark.parametrize("kind", ["uos", "maint", "diag"])
+def test_each_operating_subtype_boots(board, mfboot_image, test_os, need_mtools, tmp_path,
+                                      kind):
+    """The test OS built as subtype 0, 2 and 3, each in the first entry, boots."""
+    with alone(mfboot_image, board, card(tmp_path, {UOS: test_os[kind]})) as vm:
+        vm.wait_for(READY, timeout=TIMEOUT)
+        key(vm, "select")
+        vm.wait_for(OS_READY, timeout=TIMEOUT)
+        assert one(vm, "load")["subtype"] == str(SUBTYPE[kind])
+        assert one(vm, "boot", "testos")["kind"] == kind
+        assert not events(vm, "error"), vm.serial
+        os_checks(vm)
