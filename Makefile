@@ -33,6 +33,16 @@ PURE_SRCS  := \
 
 SRCS       := $(sort $(wildcard src/*.c))
 
+# `make sdimage`. Set before the include: robco.mk reads them. The card
+# holds MFBOOT.SYS, the default BOOT.CFG and the test operating images.
+OS_BUILD       = $(abspath $(BUILD))/os
+SDIMAGE_MIB   ?= 64
+SDIMAGE_DEPS  := $(BUILD)/$(IMAGE).img testos
+SDIMAGE_FILES := boot/BOOT.CFG:ROBCO/BOOT.CFG $(BUILD)/$(IMAGE).img:ROBCO/MFBOOT.SYS \
+                 $(OS_BUILD)/uos/testos.img:ROBCO/UOS.SYS \
+                 $(OS_BUILD)/maint/testos.img:ROBCO/MAINT.SYS \
+                 $(OS_BUILD)/diag/testos.img:ROBCO/DIAG.SYS
+
 # Host unit tests: tests/host/test_<name>.c with the pure files. The
 # screen reader needs the console font and the colour schemes.
 HOST_TEST_DIR := tests/host
@@ -56,8 +66,6 @@ include $(ROBCO_CORE)/mk/host.mk
 
 # The test OS, built for tests only, once per operating subtype:
 # build/os/<kind>/testos.img. Not shipped.
-OS_BUILD = $(abspath $(BUILD))/os
-
 .PHONY: testos
 all: testos
 
@@ -65,6 +73,9 @@ testos:
 	$(MAKE) --no-print-directory -C tests/os BUILD=$(OS_BUILD)/uos KIND=uos SUBTYPE=0
 	$(MAKE) --no-print-directory -C tests/os BUILD=$(OS_BUILD)/maint KIND=maint SUBTYPE=2
 	$(MAKE) --no-print-directory -C tests/os BUILD=$(OS_BUILD)/diag KIND=diag SUBTYPE=3
+
+$(OS_BUILD)/%/testos.img: testos
+	@test -f $@
 
 # ---- Python environment for the target tests --------------------------
 
@@ -101,3 +112,25 @@ check-doc-links:
 
 # Host unit tests come from mk/host.mk. The pin check runs first.
 test-host: check-pins
+
+# ---- Cards and QEMU -----------------------------------------------------
+
+# FIRST=<RETROS.IMG> puts a first stage on the card as RETROS.IMG, with
+# its config.txt, so the card boots the whole chain.
+sdimage-stage::
+	$(if $(FIRST),$(ROBCO_CORE)/tools/mkbootdir.sh $(FIRST) $(SDIMAGE_STAGE) \
+	    --kernel-name RETROS.IMG --no-firmware)
+
+# Alone, a two-word image at 0x8000 jumps to MFBootAgent at its link address.
+$(BUILD)/tramp.img:
+	@mkdir -p $(dir $@)
+	$(PYTHON) -c "import struct, sys; open(sys.argv[1], 'wb').write(struct.pack('<II', 0xE51FF004, $(LINK_ADDR)))" $@
+
+.PHONY: run
+comma := ,
+RUN_ALONE := $(BUILD)/tramp.img --qemu-arg=-device \
+             --qemu-arg=loader$(comma)file=$(BUILD)/$(IMAGE).img$(comma)addr=$(LINK_ADDR)$(comma)force-raw=on
+RUN_BOARD := $(if $(filter all,$(BOARD)),raspi2b,$(BOARD))
+run: sdimage $(BUILD)/tramp.img
+	PYTHONPATH=$(ROBCO_CORE)/tests $(PYTHON) -m harness.run $(if $(FIRST),$(FIRST),$(RUN_ALONE)) \
+	    --board $(RUN_BOARD) --sd $(BUILD)/sd.img --serial2 pty $(if $(filter 1,$(WINDOW)),--window)
