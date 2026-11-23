@@ -6,11 +6,10 @@
 
 | File | Covers |
 |---|---|
-| `test_bootcfg.c` | The spec's example verbatim, every limit, bad values, syntax errors, duplicates, more than 8 entries, a missing default |
+| `test_bootcfg.c` | The spec's three examples verbatim, the order of results per entry header, every limit, the path and `cmdline` rules, upper-case paths, last value wins, `[boot]` twice, duplicates, more than 8 usable entries, unusable sections that take no slot, defaults, syntax errors |
 | `test_menu.c` | Every key in every state, the countdown to zero, a key stopping it, `timeout = 0`, digits past the entries, the wrap of `timer_now_ms()` |
 | `test_menulines.c` | Every line of the screen and the 79-column limit |
-| `test_boot.c` | Loader results to codes and lines, the accepted subtypes, the boot info fields this stage writes |
-| `test_screen.c` | Reading text and attributes back from pixels in every scheme and pixel order |
+| `test_boot.c` | Loader results to codes and lines, the accepted subtypes, the header check order up to the subtype, the boot info fields this stage writes |
 
 ## Target tests
 
@@ -26,14 +25,22 @@ How the stage starts:
 
 | File | Covers |
 |---|---|
-| `test_entry.py` | The first markers alone, with no card |
+| `test_entry.py` | The first markers alone, with no card. A cold boot takes the `init` screen path and runs no adopt call. |
 | `test_menu.py` | Markers in order, the menu golden, the countdown and its time bound, a key stopping it, UP, DOWN, digits, ENTER and serial arrows, `timeout = 0`, no timeout, the reboot key, the handoff golden |
-| `test_config.py` | No `BOOT.CFG`, a syntax error, no usable entry, the counts and limits |
-| `test_load.py` | Each load failure with its line, then another entry boots; the countdown does not restart; the error golden; no card; no volume |
-| `test_chain.py` | After chain1: the old text stays, the boot info keeps earlier fields and sets new ones. With `RETROS_IMG`: BIOS, MFBootAgent and the test OS in order. |
+| `test_config.py` | No `BOOT.CFG`, a syntax error, no usable entry, the counts and limits, eight sections without a path then a usable ninth with a lower-case path |
+| `test_load.py` | Each load failure with its line, then another entry boots; a wrong subtype with a good CRC, a bad CRC or a bad ABI reports `bounds`; each operating subtype boots; the countdown does not restart; the error golden; no card; no volume |
+| `test_chain.py` | After chain1: the screen is adopted, the old text stays, the boot info keeps earlier fields and sets new ones. After chain1 with no framebuffer: the `init` path. With `RETROS_IMG`: BIOS, MFBootAgent and the test OS in order, and the BIOS text above the menu. |
 | `test_env_hygiene.py` | No test copies the host environment |
 
 The test OS in `tests/os/` is built three times, as subtypes 0, 2 and 3. It checks the registers and the boot info it receives against the spec for a third stage and prints one `check` marker per check.
+
+## The earlier text above the menu
+
+After an adopt the console does not know the earlier cells, and `dump` shows them as `#`. So the tests check that text by its pixels:
+
+- After chain1, the rows above the menu equal `chain1` and a blank row, drawn from the console font in amber. The tests take the font and the colours from RobCo-Core's `tests/target/test_console.py`.
+- After RETROS-BIOS, a first run loads RobCo-Core's `examples/chain2` built with `CHAIN2_VIDEO_WAIT` as `MFBOOT.SYS`. It adopts the screen, writes nothing and waits, so its screenshot is the BIOS screen at the handoff. A second run loads MFBootAgent. The menu scrolls the screen, and the rows above it must equal the BIOS rows of the first screenshot, moved up by the scroll. The two BIOS rows that name the loaded image differ between the runs. They are compared with their text from the BIOS serial output, drawn from the font.
+- `dump` checks the rest: every cell above the menu is unknown, and every cell of the menu is known.
 
 ## Goldens
 

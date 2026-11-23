@@ -6,14 +6,13 @@ Pure files have no hardware access. The host tests link them, with RobCo-Core's 
 
 | File | Pure | What it holds |
 |---|---|---|
-| `src/main.c` | No | The flow: entry, screen, mount, `BOOT.CFG`, menu drawing, load, handoff |
+| `src/main.c` | No | The flow: entry, screen adoption, mount, `BOOT.CFG`, menu drawing, header read, load, handoff |
 | `src/maint.c` | No | Input back ends and the maintenance port commands `state`, `dump`, `reboot` |
 | `src/mfb.h` | No | Shared state and output of `main.c` and `maint.c` |
-| `src/bootcfg.c` | Yes | The `BOOT.CFG` parser on top of `ini.h` |
+| `src/bootcfg.c` | Yes | The `BOOT.CFG` parser on top of `ini_parse_sections()` |
 | `src/menu.c` | Yes | The menu state machine: selection, countdown, keys, dirty lines |
 | `src/menulines.c` | Yes | Every line of the menu screen. The lore lines are here and marked as lore. |
-| `src/boot.c` | Yes | Error names, reasons and lines, the accepted subtypes, the boot info fields this stage writes |
-| `src/screen.c` | Yes | Reads the previous stage's text back from the framebuffer pixels |
+| `src/boot.c` | Yes | Error names, reasons and lines, the header check up to the subtype, the boot info fields this stage writes |
 | `src/robco_config.h` | | Image header: stage name `bootagent`, subtype 4, ABI 2, name `MFBOOT`, slot end |
 | `boot/BOOT.CFG` | | The default `BOOT.CFG` for a card |
 | `tests/host/` | | Host unit tests of the pure files |
@@ -22,9 +21,9 @@ Pure files have no hardware access. The host tests link them, with RobCo-Core's 
 
 RobCo-Core sits in `external/robco-core` as a submodule. `mk/robco.mk` builds the image and `mk/host.mk` the host tests.
 
-## Why the screen is read back
+## The screen
 
-After a trusted handoff the framebuffer is live, but RobCo-Core's `fb.c` and `console.c` keep their state in the image that set them up. This stage has no call to adopt them. It calls `fb_init()` with the same mode, which gives the framebuffer driver its state, and `console_init()`, which clears the screen. Before that, `screen.c` matches each 8x16 cell against the console font in the four colour levels of the scheme. `main.c` then writes the cells again. A cell that matches nothing becomes `?` and counts in the `screen` marker.
+After a trusted handoff `main.c` adopts the live framebuffer and console with `fb_adopt()` and `console_adopt()`. No pixel changes. The console does not know the earlier characters, so the menu writes only its own rows. [BOOT.md](BOOT.md#screen) lists the paths.
 
 ## Memory
 
@@ -35,4 +34,4 @@ After a trusted handoff the framebuffer is live, but RobCo-Core's `fb.c` and `co
 | `0x00200000`-`0x003FFFFF` | This image, its BSS and its stacks: 2 MiB |
 | `0x00400000`-`0x00FFFFFF` | OS slot, written by the loader |
 
-The image is 71280 bytes. With BSS and stacks it takes 130272 bytes (`mem_size` `0x1FCE0`), about 6% of its 2 MiB range. These numbers come from one build with the toolchain on the development machine and change with the toolchain. The link fails if the image outgrows the range. The largest buffers are the `BOOT.CFG` text, 4 KiB, and the kept screen cells, 8 KiB. The code of this stage allocates nothing on a heap.
+The image is 72160 bytes. With BSS and stacks it takes 130704 bytes (`mem_size` `0x1FE90`), about 6% of its 2 MiB range. These numbers come from one build with the toolchain on the development machine and change with the toolchain. The link fails if the image outgrows the range. The largest buffers are the console cells of RobCo-Core, 8 KiB, the parser state with the names of up to 410 entry headers, 7 KiB, and the `BOOT.CFG` text, 4 KiB. The code of this stage allocates nothing on a heap.

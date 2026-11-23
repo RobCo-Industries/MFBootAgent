@@ -19,6 +19,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The maintenance port with `state`, `dump` and `reboot`.
 - Host tests, QEMU tests on four boards, a test operating image and CI.
 
+### Changed
+
+- RobCo-Core is pinned at `796607f`.
+- After a trusted handoff the stage adopts the screen with `fb_adopt()` and `console_adopt()`. It falls back to `fb_init()` and `console_init()`. The `screen` marker adds `path`, `adopt_fb` and `adopt_console`.
+- The menu writes every one of its rows in full, and only its own rows.
+- `BOOT.CFG` is read with `ini_parse_sections()` and follows the rules of BOOT_PROTOCOL.md: one result per entry header, names of letters, digits, `_` and `-`, 8.3 paths stored in upper case, printable `cmdline` only, last value wins. The `config` marker adds `nopath`.
+- The subtype check runs before the ABI and CRC steps.
+
+### Fixed
+
+- Sections without a path no longer take menu slots. Eight of them followed by a valid ninth used to give the default menu.
+- An image with a wrong subtype and a wrong CRC reported `crc`. It now reports `bounds`.
+
 ### Removed
+
+- The pixel read-back of the earlier screen, `src/screen.c`, and its host tests.
 
 - The prototype: its sources, payloads, tools, configuration files and documents.

@@ -9,9 +9,9 @@ The project is inspired by the RobCo terminals of the Fallout games. The title a
 What works, in QEMU on `raspi0`, `raspi1ap`, `raspi2b` and `raspi3b`:
 
 - It boots alone, loaded at `0x00200000` with no first stage.
-- It boots after a first stage: RobCo-Core's `examples/chain1` or RETROS-BIOS. The screen continues below the first stage's text.
-- It reads `/ROBCO/BOOT.CFG` and shows up to 8 entries, with a countdown when `timeout` is set.
-- It loads the chosen entry, checks it and hands off with the boot info.
+- It boots after a first stage: RobCo-Core's `examples/chain1` or RETROS-BIOS. It adopts the first stage's screen and shows the menu below its text.
+- It reads `/ROBCO/BOOT.CFG` and shows up to 8 usable entries, with a countdown when `timeout` is set.
+- It checks the chosen image's header and subtype, loads it and hands off with the boot info.
 - A failed load shows an error line and the menu stays.
 
 What does not exist yet: the maintenance mode, the diagnostics image and GPIO button navigation.
