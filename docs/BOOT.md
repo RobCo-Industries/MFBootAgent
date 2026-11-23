@@ -115,7 +115,7 @@ The SD slot has no card detect, so the stage cannot see a card change. Verify en
 
 After any failure, `sd_deinit()` leaves the driver not ready. A volume still mounted then fails every read with `BLK_ERR_NOMEDIA`, so it never reads another card. The next call starts from step 1 and recovers once a card answers. RobCo-Core has no call that drops a volume without the sync. Dropping it loses nothing: the stage opens files for reading only.
 
-`BOOT.CFG` is read once, at start. A card change keeps the menu entries and the Configuration page from the start. Verify entries checks those entries against the card in the slot, and a boot loads the entry's path from it. The System page's boot volume and `boot_part_lba` come from the last mount that worked. Re-reading `BOOT.CFG` would change the menu under the user, so a new card's entries need a reboot.
+`BOOT.CFG` is read once, at start. A card change keeps the menu entries and the Configuration page from the start. Verify entries checks those entries against the card in the slot, and a boot loads the entry's path from it. `boot_part_lba` comes from the mount the image loaded from. The System page shows the volume mounted now with its first block and size. When the last mount failed, it shows `not mounted` with the failed step and its code, then a `Last good` line: the last volume that mounted, or `none since power-on`. Re-reading `BOOT.CFG` would change the menu under the user, so a new card's entries need a reboot.
 
 ### 6. Failures
 

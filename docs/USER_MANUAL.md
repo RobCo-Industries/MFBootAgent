@@ -150,11 +150,14 @@ The stage reads `/ROBCO/BOOT.CFG` once, at start. The menu, the Configuration pa
 
 ### System
 
+The page shows the state of the last mount. After a failed Verify entries or boot, it says the volume is not mounted. After a mount that works, it shows that volume again.
+
 | Row | Shows |
 |---|---|
 | `Board` | The board model and its chip |
 | `Memory` | ARM memory in MiB |
-| `Boot volume` | The first block and the size of the FAT volume in use |
+| `Boot volume` | The FAT volume mounted now: `SD card, block <first>, <size> blocks`. When nothing is mounted: `not mounted, step <step> failed, code <code>`. The step is `sd`, `fat` or `release`. |
+| `Last good` | Only when nothing is mounted. The last volume that mounted, as `SD card, block <first>, <size> blocks`, or `none since power-on`. |
 | `Boot info` | `trusted, from the previous stage`, or `none trusted, this stage cold-booted` when the stage started alone |
 | `Boot flags` | The flags the previous stage passed on, in hex, or `none received` |
 | `Version` | The version of this stage |
