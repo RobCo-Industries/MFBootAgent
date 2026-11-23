@@ -13,16 +13,21 @@
 #include <robco/console.h>
 #include <robco/fb.h>
 #include <robco/fs.h>
+#include <robco/input.h>
 #include <robco/irq.h>
 #include <robco/klibc.h>
 #include <robco/part.h>
+#include <robco/power.h>
 #include <robco/rimg.h>
 #include <robco/sd.h>
 #include <robco/tick.h>
+#include <robco/timer.h>
 #include <robco/uart.h>
 
 #include "boot.h"
 #include "bootcfg.h"
+#include "menu.h"
+#include "menulines.h"
 #include "mfb.h"
 #include "screen.h"
 
@@ -40,6 +45,10 @@ static const char *const vol_markers[] = { MFB_CFG_PATH, MFB_DEFAULT_PATH };
 static fs_boot_t vol;
 static mfb_cfg_t cfg;
 static char cfg_text[MFB_CFG_FILE_MAX];
+
+static mfb_menu_t menu;
+static unsigned menu_top;       /* console row of the menu's first row */
+static unsigned menu_rows;      /* MFB_MENU_ROWS(cfg.count) */
 
 /* The text the previous stage left on the screen, read before fb_init(). */
 static mfb_cell_t kept[ROBCO_CONSOLE_MAX_ROWS * ROBCO_CONSOLE_MAX_COLS];
@@ -87,7 +96,11 @@ static const char *phase_name(int phase)
 
 void mfb_state_line(char *buf, unsigned size)
 {
-    k_snprintf(buf, size, "phase=%s trusted=%d", phase_name(mfb.phase), mfb.inherited);
+    k_snprintf(buf, size, "phase=%s trusted=%d entries=%u sel=%u counting=%d left=%u error=%s",
+               phase_name(mfb.phase), mfb.inherited, mfb.menu_ready ? cfg.count : 0,
+               mfb.menu_ready ? menu.sel + 1 : 0, mfb.menu_ready ? menu.counting : 0,
+               mfb.menu_ready ? mfb_menu_left(&menu, timer_now_ms()) : 0,
+               mfb.error != 0 ? mfb_err_name(mfb.error) : "none");
 }
 
 /*
@@ -262,11 +275,185 @@ static void read_config(void)
              timeout);
 }
 
+/*
+ * Writes one menu row on the screen, padded with spaces to column 79 so
+ * that it covers the text it replaces. to_uart: also one line on the PL011.
+ */
+static void put_row(unsigned row, const char *text, unsigned attr, int to_uart)
+{
+    if (mfb.fb_ok) {
+        unsigned cols = console_cols();
+        unsigned n = (unsigned)k_strlen(text);
+
+        if (n > cols - 1) {
+            n = cols - 1;
+        }
+        console_set_cursor(0, menu_top + row);
+        console_set_attr(attr);
+        console_write(text, n);
+        console_set_attr(CONSOLE_ATTR_NORMAL);
+        for (; n < cols - 1; n++) {
+            console_putc(' ');
+        }
+    }
+    if (to_uart && text[0] != '\0') {
+        uart_puts(text);
+        uart_putc('\n');
+    }
+}
+
+static unsigned entry_row(unsigned i)
+{
+    return MFB_ROW_ENTRY0 + i;
+}
+
+static unsigned after_row(unsigned offset)
+{
+    return MFB_ROW_ENTRY0 + cfg.count + offset;
+}
+
+static void draw_entry(unsigned i, int to_uart)
+{
+    char line[MFB_LINE_MAX];
+    int selected = i == menu.sel;
+
+    mfb_line_entry(line, sizeof(line), i, &cfg.entry[i], i == cfg.def, selected);
+    put_row(entry_row(i), line, selected ? CONSOLE_ATTR_BRIGHT : CONSOLE_ATTR_NORMAL, to_uart);
+}
+
+static void draw_status(int to_uart)
+{
+    char line[MFB_LINE_MAX];
+
+    mfb_line_status(line, sizeof(line), menu.counting, menu.stopped,
+                    mfb_menu_left(&menu, timer_now_ms()), cfg.entry[cfg.def].name);
+    put_row(after_row(MFB_ROW_STATUS_AFTER), line, CONSOLE_ATTR_NORMAL, to_uart);
+}
+
+/*
+ * Finds the rows for the menu below the text on the screen: a blank row
+ * after earlier text, and a scroll when the menu does not fit under it.
+ */
+static void place_menu(void)
+{
+    unsigned col, row, rows, i;
+
+    menu_rows = MFB_MENU_ROWS(cfg.count);
+    menu_top = 0;
+    if (!mfb.fb_ok) {
+        return;
+    }
+    rows = console_rows();
+    console_get_cursor(&col, &row);
+    if (col != 0) {
+        row++;
+    }
+    if (row != 0) {
+        row++;
+    }
+    if (row + menu_rows > rows) {
+        for (i = 0; i < row + menu_rows - rows; i++) {
+            console_set_cursor(0, rows - 1);
+            console_putc('\n');
+        }
+        row = rows - menu_rows;
+    }
+    menu_top = row;
+}
+
+/* The whole menu, on the screen and the PL011. */
+static void draw_menu(void)
+{
+    char line[MFB_LINE_MAX];
+    unsigned i;
+
+    uart_putc('\n');
+    mfb_line_title(line, sizeof(line), MFB_VERSION_STR);
+    put_row(MFB_ROW_TITLE, line, CONSOLE_ATTR_BRIGHT, 1);
+    for (i = 0; i < MFB_LORE_LINES; i++) {
+        put_row(MFB_ROW_LORE + i, mfb_line_lore(i), CONSOLE_ATTR_NORMAL, 1);
+    }
+    put_row(MFB_ROW_RULE, mfb_line_rule(), CONSOLE_ATTR_DIM, 1);
+    for (i = 0; i < cfg.count; i++) {
+        draw_entry(i, 1);
+    }
+    put_row(after_row(MFB_ROW_HELP_AFTER), mfb_line_help(), CONSOLE_ATTR_DIM, 1);
+    draw_status(1);
+    (void)mfb_menu_take(&menu, NULL);
+}
+
+/* Redraws what the state machine marked, and prints a marker for it. */
+static void redraw(void)
+{
+    unsigned old = 0;
+    unsigned d = mfb_menu_take(&menu, &old);
+
+    if (d & MFB_DIRTY_SEL) {
+        draw_entry(old, 0);
+        draw_entry(menu.sel, 1);
+        MFB_MARK("select index=%u name=%s", menu.sel + 1, cfg.entry[menu.sel].name);
+    }
+    if (d & MFB_DIRTY_STATUS) {
+        draw_status(1);
+        if (menu.stopped && !menu.counting) {
+            MFB_MARK("countdown state=stopped");
+        }
+    }
+}
+
+/* Waits in the menu until an entry is chosen. Returns MFB_ACT_BOOT, or reboots. */
+static int menu_loop(void)
+{
+    input_event_t ev;
+    int act;
+
+    for (;;) {
+        act = mfb_menu_tick(&menu, timer_now_ms());
+        redraw();
+        if (act == MFB_ACT_NONE &&
+            input_wait(&ev, mfb_menu_wait_ms(&menu, timer_now_ms())) != 0) {
+            act = mfb_menu_event(&menu, &ev);
+            redraw();
+        }
+        if (act == MFB_ACT_REBOOT) {
+            MFB_MARK("reboot source=key");
+            uart_flush();
+            power_reboot();
+        }
+        if (act == MFB_ACT_BOOT) {
+            return act;
+        }
+    }
+}
+
+/* Step 4: the menu. */
+static void show_menu(void)
+{
+    mfb_menu_init(&menu, cfg.count, cfg.def, cfg.timeout, timer_now_ms());
+    mfb.menu_ready = 1;
+    place_menu();
+    draw_menu();
+    if (mfb.fb_ok) {
+        console_set_cursor(0, menu_top + menu_rows - 1);
+    }
+    mfb.phase = MFB_PHASE_MENU;
+    if (cfg.timeout > 0) {
+        MFB_MARK("countdown state=start seconds=%d", cfg.timeout);
+    }
+    MFB_MARK("ready");
+}
+
 void robco_main(void)
 {
     mfb.phase = MFB_PHASE_INIT;
     entry();
     mount();
     read_config();
-    maint_idle();
+    show_menu();
+    for (;;) {
+        (void)menu_loop();
+        MFB_MARK("choose index=%u name=%s via=%s", menu.sel + 1, cfg.entry[menu.sel].name,
+                 menu.via == MFB_VIA_KEY ? "key" : "timeout");
+        mfb_menu_stop(&menu);
+    }
 }

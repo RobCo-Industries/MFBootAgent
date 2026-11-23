@@ -27,6 +27,8 @@ PYTHON     ?= python3
 PURE_SRCS  := \
               src/boot.c \
               src/bootcfg.c \
+              src/menu.c \
+              src/menulines.c \
               src/screen.c \
 
 SRCS       := $(sort $(wildcard src/*.c))
