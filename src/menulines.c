@@ -33,7 +33,7 @@ void mfb_line_entry(char *buf, size_t size, unsigned index, const mfb_entry_t *e
 
 const char *mfb_line_help(void)
 {
-    return "UP/DOWN or 1-8: select   ENTER: boot   R: reboot";
+    return "UP/DOWN or 1-8: select   ENTER: boot   M: maintenance   R: reboot";
 }
 
 void mfb_line_status(char *buf, size_t size, int counting, int stopped, unsigned left,

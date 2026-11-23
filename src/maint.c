@@ -8,15 +8,22 @@
  *   state   one line: phase, selection, countdown and last error
  *   dump    the screen text, through console_dump()
  *   reboot  restarts the board through the watchdog
+ *   maint   opens the maintenance screen, from the boot menu only
+ *
+ * The GPIO buttons use the example pins of BOARD_SUPPORT.md in
+ * RobCo-Core, each to ground with the internal pull-up.
  */
 
 #include <robco/console.h>
+#include <robco/gpio.h>
+#include <robco/timer.h>
 #include <robco/input.h>
 #include <robco/klibc.h>
 #include <robco/power.h>
 #include <robco/uart.h>
 #include <robco/uart_mini.h>
 
+#include "keymap.h"
 #include "mfb.h"
 
 static input_script_reply_t *dump_reply;
@@ -49,12 +56,75 @@ static int command(int argc, char *argv[], input_script_reply_t *reply, void *ct
         return 0;
     }
     if (k_strcmp(argv[0], "reboot") == 0 && argc == 1) {
-        MFB_MARK("reboot source=maint");
-        uart_flush();
-        power_reboot();
+        mfb_reboot("maint");
+    }
+    if (k_strcmp(argv[0], "maint") == 0 && argc == 1) {
+        input_event_t wake = { 0 };
+
+        if (mfb.maint_open || mfb.maint_req >= 0) {
+            reply->reason = "already open";
+            return -1;
+        }
+        if (mfb.phase != MFB_PHASE_MENU) {
+            reply->reason = "not in the menu";
+            return -1;
+        }
+        mfb.maint_req = MFB_WHY_PORT;
+        /* A NUL character wakes the menu's input wait. It is no key. */
+        wake.type = INPUT_EV_CHAR;
+        wake.source = INPUT_SRC_SCRIPT;
+        (void)input_push(&wake);
+        return 0;
     }
     reply->reason = "unknown command";
     return -1;
+}
+
+/* The buttons, BCM pin numbers. LEFT and RIGHT are wired but do nothing. */
+static const struct {
+    unsigned pin;
+    unsigned code;
+} buttons[] = {
+    { 5, INPUT_KEY_UP },
+    { 6, INPUT_KEY_DOWN },
+    { 17, INPUT_KEY_LEFT },
+    { 22, INPUT_KEY_RIGHT },
+    { 26, INPUT_KEY_SELECT },
+    { 27, INPUT_KEY_BACK },
+};
+
+#define GPIO_DEBOUNCE_MS    20
+#define REPEAT_DELAY_MS     500
+#define REPEAT_RATE_MS      150
+/* The guard ends after INPUT_GPIO_GUARD_MS of ticks: wait a little longer, then go on. */
+#define GPIO_GUARD_WAIT_MS  (INPUT_GPIO_GUARD_MS * 3)
+
+/*
+ * Starts the GPIO backend and waits for its stuck-line guard. Returns
+ * input_gpio_start()'s code. With no buttons wired every line reads
+ * pressed, and the backend disables itself.
+ */
+static int gpio_start(void)
+{
+    uint32_t t0;
+    unsigned i;
+    int rc = 0;
+
+    for (i = 0; i < sizeof(buttons) / sizeof(buttons[0]) && rc == 0; i++) {
+        rc = input_gpio_add_button(buttons[i].pin, buttons[i].code, 0, GPIO_PULL_UP);
+    }
+    if (rc == 0) {
+        rc = input_gpio_start(MFB_TICK_HZ, GPIO_DEBOUNCE_MS);
+    }
+    t0 = timer_now_ms();
+    while (rc == 0 && input_gpio_status() == INPUT_GPIO_CHECKING &&
+           timer_now_ms() - t0 < GPIO_GUARD_WAIT_MS) {
+        input_event_t ev;
+
+        /* No event can come yet: the console and the port start after this. */
+        (void)input_wait(&ev, 10);
+    }
+    return rc;
 }
 
 void maint_start(void)
@@ -62,14 +132,23 @@ void maint_start(void)
     int mini = uart_mini_init(115200);
     int serial;
     int script = INPUT_ERR_NO_UART;
+    int gpio;
+    int repeat;
+    int status;
 
     input_init();
+    gpio = gpio_start();
+    status = input_gpio_status();
+    repeat = input_set_repeat(REPEAT_DELAY_MS, REPEAT_RATE_MS);
     serial = input_serial_start(INPUT_SERIAL_MAIN);
     input_script_set_handler(command, NULL);
     if (mini == 0) {
         script = input_script_start();
     }
-    MFB_MARK("input serial=%d mini=%d script=%d", serial, mini, script);
+    MFB_MARK("input serial=%d mini=%d script=%d gpio=%d buttons=%s repeat=%d live=%s%s%s",
+             serial, mini, script, gpio, input_gpio_status_name(status), repeat,
+             serial == 0 ? "serial" : "", status == INPUT_GPIO_ACTIVE ? ",gpio" : "",
+             script == 0 ? ",script" : "");
 }
 
 void maint_idle(void)
