@@ -196,8 +196,8 @@ TEST(system_page)
     mfb_ms_page_t p;
     mfb_ms_sys_t sys = {
         .board = "Raspberry Pi 2 Model B", .soc = "BCM2836", .mem_bytes = 1024u << 20,
-        .vol_lba = 2048, .vol_blocks = 30720, .trusted = 1, .flags_in = 0x2,
-        .version = "0.1.0", .core_pin = "796607fc0197", .screen = MFB_MS_SCREEN_ADOPT,
+        .mounted = 1, .have_good = 1, .vol_lba = 2048, .vol_blocks = 30720,
+        .fail_what = "none", .trusted = 1, .flags_in = 0x2, .version = "0.1.0", .core_pin = "796607fc0197", .screen = MFB_MS_SCREEN_ADOPT,
     };
     unsigned n = mfb_ms_system(p, &sys);
 
@@ -230,6 +230,60 @@ TEST(system_page)
     check_page(p, n);
     CHECK_STR(p[8], "Screen:       none, serial only");
     CHECK_EQ(strlen(p[1]), MFB_LINE_MAX - 1);
+}
+
+/* The page on an 80 by 18 and an 80 by 30 grid: its rows fit the screen, its lines the width. */
+static void check_on_grids(mfb_ms_page_t p, unsigned n)
+{
+    static const unsigned grids[] = { 18, 30 };
+    unsigned g;
+
+    check_page(p, n);
+    for (g = 0; g < 2; g++) {
+        mfb_place_t pl;
+
+        mfb_menu_place(grids[g], MFB_MS_ROWS, 0, grids[g] - 1, &pl);
+        CHECK(pl.top + MFB_MS_ROW_OUT0 + n <= grids[g]);
+    }
+}
+
+/* The boot volume in its three states: mounted, not mounted after a good mount, none ever. */
+TEST(system_page_volume_states)
+{
+    mfb_ms_page_t p;
+    mfb_ms_sys_t sys = {
+        .board = "Raspberry Pi 3 Model B", .soc = "BCM2837", .mem_bytes = 1024u << 20,
+        .mounted = 1, .have_good = 1, .vol_lba = 2048, .vol_blocks = 30720,
+        .fail_what = "none", .trusted = 0, .version = "0.1.0", .core_pin = "796607fc0197",
+        .screen = MFB_MS_SCREEN_FRESH,
+    };
+    unsigned n = mfb_ms_system(p, &sys);
+
+    CHECK_EQ(n, 9);
+    check_on_grids(p, n);
+    CHECK_STR(p[3], "Boot volume:  SD card, block 2048, 30720 blocks");
+    CHECK_STR(p[4], "Boot info:    none trusted, this stage cold-booted");
+
+    sys.mounted = 0;
+    sys.fail_what = "fat";
+    sys.fail_rc = -3;
+    n = mfb_ms_system(p, &sys);
+    CHECK_EQ(n, MFB_MS_OUT_ROWS);
+    check_on_grids(p, n);
+    CHECK_STR(p[3], "Boot volume:  not mounted, step fat failed, code -3");
+    CHECK_STR(p[4], "Last good:    SD card, block 2048, 30720 blocks");
+    CHECK_STR(p[5], "Boot info:    none trusted, this stage cold-booted");
+    CHECK_STR(p[9], "Screen:       started by this stage");
+
+    sys.have_good = 0;
+    sys.fail_what = "release";
+    sys.fail_rc = -2147483647 - 1;
+    n = mfb_ms_system(p, &sys);
+    CHECK_EQ(n, MFB_MS_OUT_ROWS);
+    check_on_grids(p, n);
+    CHECK_STR(p[3], "Boot volume:  not mounted, step release failed, code -2147483648");
+    CHECK_STR(p[4], "Last good:    none since power-on");
+    CHECK_STR(p[9], "Screen:       started by this stage");
 }
 
 TEST(config_page)

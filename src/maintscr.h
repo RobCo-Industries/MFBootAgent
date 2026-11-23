@@ -87,8 +87,12 @@ typedef struct {
     const char *board;      /* model name */
     const char *soc;
     uint32_t mem_bytes;
-    uint32_t vol_lba;       /* first block of the boot volume */
-    uint32_t vol_blocks;
+    int mounted;            /* a boot volume is mounted now */
+    int have_good;          /* a mount worked since power-on */
+    uint32_t vol_lba;       /* first block of the last volume that mounted */
+    uint32_t vol_blocks;    /* its size in blocks */
+    const char *fail_what;  /* not mounted: the failed step, "sd", "fat" or "release" */
+    int fail_rc;            /* not mounted: that step's code */
     int trusted;            /* the boot info passed the trust rule */
     uint32_t flags_in;      /* boot_flags received, when trusted */
     const char *version;    /* the stage's version */
@@ -100,7 +104,11 @@ typedef struct {
 #define MFB_MS_SCREEN_ADOPT 1
 #define MFB_MS_SCREEN_FRESH 2
 
-/* Fills `page`. Returns the line count, at most MFB_MS_OUT_ROWS. */
+/*
+ * Fills `page`. Returns the line count, at most MFB_MS_OUT_ROWS. When
+ * nothing is mounted, the boot volume takes two lines: the failed step,
+ * then the last volume that mounted, or "none since power-on".
+ */
 unsigned mfb_ms_system(mfb_ms_page_t page, const mfb_ms_sys_t *sys);
 
 /* What the Configuration page shows: the config marker's values. */

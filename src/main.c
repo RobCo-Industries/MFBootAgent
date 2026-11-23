@@ -43,6 +43,17 @@ mfb_state_t mfb;
  */
 static const char *const vol_markers[] = { MFB_CFG_PATH, MFB_DEFAULT_PATH };
 static fs_boot_t vol;
+/*
+ * fs_mount_boot() clears `vol` on a failure, so the System page reads
+ * these instead: whether a volume is mounted now, the last volume that
+ * mounted, and the last failed step with its code.
+ */
+static int vol_mounted;
+static int vol_have_good;
+static uint32_t good_lba;
+static uint32_t good_blocks;
+static const char *fail_what = "none";
+static int fail_rc;
 mfb_cfg_t mfb_cfg;
 static char cfg_text[MFB_CFG_FILE_MAX];
 static mfb_cfg_report_t cfg_rep;    /* what read_config() found, for the Configuration page */
@@ -234,17 +245,33 @@ static void halt_io(const char *what, int rc)
  * The boot volume, by the rule every stage shares. Returns 0, or the
  * failed step in *what ("sd" or "fat") with its code in *rc.
  */
+static int mount_failed(const char *what, int rc)
+{
+    vol_mounted = 0;
+    fail_what = what;
+    fail_rc = rc;
+    return -1;
+}
+
 int mfb_mount(const char **what, int *rc)
 {
+    vol_mounted = 0;
     *what = "sd";
     *rc = sd_init();
     if (*rc != 0) {
-        return -1;
+        return mount_failed(*what, *rc);
     }
     *what = "fat";
     *rc = fs_mount_boot("sd", sd_blkdev(), vol_markers,
                         sizeof(vol_markers) / sizeof(vol_markers[0]), &vol);
-    return *rc == PART_BOOT_OK ? 0 : -1;
+    if (*rc != PART_BOOT_OK) {
+        return mount_failed(*what, *rc);
+    }
+    vol_mounted = 1;
+    vol_have_good = 1;
+    good_lba = (uint32_t)vol.start_lba;
+    good_blocks = (uint32_t)vol.block_count;
+    return 0;
 }
 
 /*
@@ -295,8 +322,9 @@ int mfb_remount(const char **what, int *rc)
     const char *w;
     int r;
 
+    vol_mounted = 0;
     if (release(what, rc) != 0) {
-        return -1;
+        return mount_failed(*what, *rc);
     }
     if (mfb_mount(what, rc) == 0) {
         return 0;
@@ -315,7 +343,8 @@ static void mount(void)
     if (mfb_mount(&what, &rc) != 0) {
         halt_io(what, rc);
     }
-    MFB_MARK("mount lba=%u blocks=%u", (unsigned)vol.start_lba, (unsigned)vol.block_count);
+    /* halt_io() never returns: here the mount worked and `vol` holds it. */
+    MFB_MARK("mount lba=%u blocks=%u", (unsigned)good_lba, (unsigned)good_blocks);
 }
 
 /* Step 3: the menu entries from BOOT.CFG, or the one default entry. */
@@ -623,6 +652,7 @@ static void handoff(const mfb_entry_t *e)
     char name[sizeof(res.hdr->name) + 1];
 
     fs_unmount("sd");
+    vol_mounted = 0;
     k_snprintf(line, sizeof(line), "Starting %s.", e->name);
     clear_row(after_row(MFB_ROW_ERROR_AFTER));
     put_row(after_row(MFB_ROW_START_AFTER), line, CONSOLE_ATTR_NORMAL, 1);
@@ -633,7 +663,12 @@ static void handoff(const mfb_entry_t *e)
     }
     bootinfo_build(bi, ROBCO_STAGE_BOOTAGENT);
     bi->boot_flags = mfb_maint_flag(bi->boot_flags, mfb.inherited, mfb.flags_in, mfb.user_maint);
-    mfb_bootinfo_set_boot(bi, ROBCO_BOOT_DEV_EMMC, (uint32_t)vol.start_lba, e->path, e->cmdline);
+    /*
+     * handoff() has one caller, boot_selected(), and it runs only after
+     * mfb_remount() returned 0 and the entry loaded from that volume.
+     * So good_lba is the volume the image came from, never a cleared one.
+     */
+    mfb_bootinfo_set_boot(bi, ROBCO_BOOT_DEV_EMMC, good_lba, e->path, e->cmdline);
     k_memcpy(name, res.hdr->name, sizeof(res.hdr->name));
     name[sizeof(res.hdr->name)] = '\0';
     MFB_MARK("bootinfo flags=0x%08x caps=0x%08x dev=%u part_lba=%u path=%s cmdline_len=%u "
@@ -738,8 +773,12 @@ void mfb_sys_info(mfb_ms_sys_t *sys)
     sys->board = board_model_name(b->board_rev);
     sys->soc = b->soc_name;
     sys->mem_bytes = b->mem_size;
-    sys->vol_lba = (uint32_t)vol.start_lba;
-    sys->vol_blocks = (uint32_t)vol.block_count;
+    sys->mounted = vol_mounted;
+    sys->have_good = vol_have_good;
+    sys->vol_lba = good_lba;
+    sys->vol_blocks = good_blocks;
+    sys->fail_what = fail_what;
+    sys->fail_rc = fail_rc;
     sys->trusted = mfb.inherited;
     sys->flags_in = mfb.flags_in;
     sys->version = MFB_VERSION_STR;

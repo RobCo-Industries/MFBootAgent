@@ -153,8 +153,19 @@ unsigned mfb_ms_system(mfb_ms_page_t page, const mfb_ms_sys_t *sys)
     n = add(page, n, "SYSTEM");
     n = add(page, n, "Board:        %s, %s", sys->board, sys->soc);
     n = add(page, n, "Memory:       %u MiB", (unsigned)(sys->mem_bytes >> 20));
-    n = add(page, n, "Boot volume:  SD card, block %u, %u blocks", (unsigned)sys->vol_lba,
-            (unsigned)sys->vol_blocks);
+    if (sys->mounted) {
+        n = add(page, n, "Boot volume:  SD card, block %u, %u blocks", (unsigned)sys->vol_lba,
+                (unsigned)sys->vol_blocks);
+    } else {
+        n = add(page, n, "Boot volume:  not mounted, step %s failed, code %d", sys->fail_what,
+                sys->fail_rc);
+        if (sys->have_good) {
+            n = add(page, n, "Last good:    SD card, block %u, %u blocks", (unsigned)sys->vol_lba,
+                    (unsigned)sys->vol_blocks);
+        } else {
+            n = add(page, n, "Last good:    none since power-on");
+        }
+    }
     if (sys->trusted) {
         n = add(page, n, "Boot info:    trusted, from the previous stage");
         n = add(page, n, "Boot flags:   0x%08x received", (unsigned)sys->flags_in);
