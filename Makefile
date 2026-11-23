@@ -29,7 +29,6 @@ PURE_SRCS  := \
               src/bootcfg.c \
               src/menu.c \
               src/menulines.c \
-              src/screen.c \
 
 SRCS       := $(sort $(wildcard src/*.c))
 
@@ -43,12 +42,9 @@ SDIMAGE_FILES := boot/BOOT.CFG:ROBCO/BOOT.CFG $(BUILD)/$(IMAGE).img:ROBCO/MFBOOT
                  $(OS_BUILD)/maint/testos.img:ROBCO/MAINT.SYS \
                  $(OS_BUILD)/diag/testos.img:ROBCO/DIAG.SYS
 
-# Host unit tests: tests/host/test_<name>.c with the pure files. The
-# screen reader needs the console font and the colour schemes.
+# Host unit tests: tests/host/test_<name>.c with the pure files.
 HOST_TEST_DIR := tests/host
-HOST_SRCS     := $(PURE_SRCS) \
-                 $(ROBCO_CORE)/src/gfx/font8x16_fixedsys.c \
-                 $(ROBCO_CORE)/src/gfx/schemes.c
+HOST_SRCS     := $(PURE_SRCS)
 HOST_INCLUDES := src
 
 ifeq ($(wildcard $(ROBCO_CORE)/mk/robco.mk),)

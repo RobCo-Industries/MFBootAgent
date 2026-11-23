@@ -1,8 +1,15 @@
 """MFBootAgent after a first stage: RobCo-Core's examples/chain1, and RETROS-BIOS when
 RETROS_IMG is set. The first stage loads /ROBCO/MFBOOT.SYS from the card."""
 
-from mfboot import (MACH, OS_READY, READY, STAGE_BIOS, TIMEOUT, UOS, WAIT_CFG, after, card,
-                    dump, events, key, one, os_checks, os_files, screenshot)
+import re
+
+from mfboot import (MACH, OS_READY, READY, STAGE_BIOS, TIMEOUT, UOS, WAIT_CFG, WAIT_N1, after,
+                    card, dump, events, key, one, os_checks, os_files, render_rows,
+                    same_pixels, screenshot, text_rows)
+
+COLS, ROWS = 80, 30
+MENU_ROWS = 13  # the menu with three entries
+TITLE = "ROBCO MFBOOT AGENT V0.1.0"
 
 BOOT_COLD = 1 << 2
 
@@ -26,11 +33,18 @@ def test_after_chain1(board, chain1_image, mfboot, test_os, need_mtools, tmp_pat
         vm.wait_for(READY, timeout=TIMEOUT)
         assert one(vm, "handoff")["trusted"] == "1"
         screen = one(vm, "screen")
-        # chain1 hands over an amber console; its text stays on the screen.
-        assert (screen["kept"], screen["unknown"], screen["scheme"]) == ("1", "0", "1"), screen
+        # chain1 hands over an amber console. Both adopt calls succeed.
+        assert (screen["kept"], screen["path"], screen["adopt_fb"], screen["adopt_console"],
+                screen["scheme"], screen["unknown"]) == \
+            ("1", "adopt", "0", "0", "1", str(COLS * ROWS)), screen
+        # chain1's text stays as pixels above the menu, after a blank row.
+        img = screenshot(vm, tmp_path)
+        assert same_pixels(text_rows(img, 0, 2), render_rows(["chain1", ""], 1)), vm.serial
+        # The console does not know chain1's cells; it knows every cell of the menu.
         _, rows = dump(vm)
-        assert rows[:3] == ["chain1", "", "ROBCO MFBOOT AGENT V0.1.0"], rows
+        assert rows[:3] == ["#" * COLS, "#" * COLS, TITLE], rows
         assert rows[7] == "> 1  UOS             DEFAULT  /ROBCO/UOS.SYS", rows
+        assert all("#" not in r for r in rows[2:2 + MENU_ROWS]), rows
         key(vm, "select")
         vm.wait_for(OS_READY, timeout=TIMEOUT)
         assert stage_order(vm) == [("chain1", "jump"), ("bootagent", "boot"),
@@ -50,6 +64,20 @@ def test_after_chain1(board, chain1_image, mfboot, test_os, need_mtools, tmp_pat
         assert info["part_lba"] == "2048"
         # The row after the menu: chain1 text and a blank row, then 13 menu rows.
         assert int(info["cy"]) == 2 + 13, info
+
+
+def test_after_chain1_without_fb(board, chain1_nofb_image, mfboot, test_os, need_mtools,
+                                 tmp_path):
+    """A trusted handoff with caps bit 0 clear: no adopt call, a fresh screen."""
+    with after(chain1_nofb_image, board, chain_card(tmp_path, mfboot, test_os)) as vm:
+        vm.wait_for(READY, timeout=TIMEOUT)
+        assert one(vm, "handoff")["trusted"] == "1"
+        screen = one(vm, "screen")
+        assert (screen["fb"], screen["console"], screen["kept"], screen["path"],
+                screen["adopt_fb"], screen["adopt_console"]) == \
+            ("0", "0", "0", "init", "none", "none"), screen
+        _, rows = dump(vm)
+        assert rows[0] == TITLE, rows
 
 
 def test_after_chain1_screen(board, chain1_image, mfboot, test_os, need_mtools, tmp_path):
@@ -73,7 +101,7 @@ def test_whole_chain(board, retros_image, mfboot, test_os, need_mtools, tmp_path
                                    ("testos", "boot"), ("testos", "ready")], vm.serial
         assert one(vm, "handoff")["trusted"] == "1"
         screen = one(vm, "screen")
-        assert (screen["kept"], screen["unknown"], screen["scheme"]) == ("1", "0", "0"), screen
+        assert (screen["kept"], screen["path"], screen["scheme"]) == ("1", "adopt", "0"), screen
         os_checks(vm)
         info = one(vm, "bootinfo", "testos")
         bios = one(vm, "bootinfo", "bios")
@@ -85,3 +113,51 @@ def test_whole_chain(board, retros_image, mfboot, test_os, need_mtools, tmp_path
         assert one(vm, "boot", "bios")["midr"] == one(vm, "boot", "bootagent")["midr"]
         assert one(vm, "handoff", "testos")["trusted"] == "1"
         assert STAGE_BIOS == 1
+
+
+BIOS_WAIT_CFG = WAIT_CFG + b"\n[bios]\ndelay_ms = 0\nbeep = off\n"
+
+
+def test_whole_chain_keeps_bios_text(board, retros_image, chain2_wait_image, mfboot, test_os,
+                                     need_mtools, tmp_path):
+    """The BIOS text above the menu is the BIOS screen at the handoff, pixel for pixel."""
+    # The BIOS screen at the handoff: chain2 adopts it, writes nothing and waits.
+    with open(chain2_wait_image, "rb") as f:
+        waiter = f.read()
+    (tmp_path / "a").mkdir()
+    sd = chain_card(tmp_path / "a", waiter, test_os, cfg=BIOS_WAIT_CFG)
+    with after(retros_image, board, sd) as vm:
+        vm.wait_for(WAIT_N1, timeout=TIMEOUT)
+        rb = one(vm, "rebuild", "chain2")
+        before = screenshot(vm, tmp_path, "before")
+    assert one(vm, "video", "chain2")["path"] == "adopt", vm.serial
+    cy = int(rb["cy"])
+    assert 0 < cy < ROWS, rb
+    # The menu starts after a blank row, or scrolls the screen up to fit.
+    top = min(cy + 1, ROWS - MENU_ROWS)
+    shift = cy + 1 - top
+
+    (tmp_path / "b").mkdir()
+    sd = chain_card(tmp_path / "b", mfboot, test_os, cfg=BIOS_WAIT_CFG)
+    with after(retros_image, board, sd) as vm:
+        vm.wait_for(READY, timeout=TIMEOUT)
+        img = screenshot(vm, tmp_path, "menu")
+        _, rows = dump(vm)
+    assert one(vm, "screen")["path"] == "adopt", vm.serial
+    assert rows[top] == TITLE, rows
+    # Unknown cells above the menu, known cells in it.
+    assert all(set(r) == {"#"} for r in rows[:top]), rows
+    assert all("#" not in r for r in rows[top:top + MENU_ROWS]), rows
+    # The BIOS rows that name the image it loaded differ between the two
+    # runs: compare them with their text from the BIOS serial output.
+    loaded = re.findall(r"^(Loaded MFBOOT: [^\r\n]*|Starting MFBOOT at [^\r\n]*)\r?$",
+                        vm.serial, re.M)
+    assert len(loaded) == 2, vm.serial
+    same = top - 3
+    checks = [("same", text_rows(img, 0, same), text_rows(before, shift, same)),
+              ("loaded", text_rows(img, same, 3), render_rows(loaded + [""], 0))]
+    for name, got, want in checks:
+        if not same_pixels(got, want):
+            got.save(tmp_path / f"{name}.got.png")
+            want.save(tmp_path / f"{name}.want.png")
+            raise AssertionError(f"BIOS text differs above the menu ({name}), see {tmp_path}")

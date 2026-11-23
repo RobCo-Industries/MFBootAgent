@@ -7,6 +7,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CORE = os.path.join(ROOT, "external", "robco-core")
 sys.path.insert(0, os.path.join(CORE, "tests"))
+# test_console: the console font and colour schemes, to render expected text.
+sys.path.insert(0, os.path.join(CORE, "tests", "target"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 pytest_plugins = ["harness.plugin"]
 
@@ -56,6 +58,26 @@ def chain1_image(robco_build, build_dir):
     flags = (f"BUILD={out}", "EXTRA_CFLAGS=-DCHAIN1_SD=1 -DCHAIN1_FB=1")
     return robco_build(os.path.join(CORE, "examples", "chain1"), flags=flags,
                        image=os.path.join(out, "chain1.img"))
+
+
+@pytest.fixture(scope="session")
+def chain1_nofb_image(robco_build, build_dir):
+    """examples/chain1 built with CHAIN1_SD only: a trusted handoff with no framebuffer."""
+    out = os.path.join(build_dir, "chain1nofb")
+    flags = (f"BUILD={out}", "EXTRA_CFLAGS=-DCHAIN1_SD=1")
+    return robco_build(os.path.join(CORE, "examples", "chain1"), flags=flags,
+                       image=os.path.join(out, "chain1.img"))
+
+
+@pytest.fixture(scope="session")
+def chain2_wait_image(robco_build, build_dir):
+    """RobCo-Core's examples/chain2 built with CHAIN2_VIDEO_WAIT. Loaded as
+    MFBOOT.SYS, it adopts the screen, writes nothing and waits: a
+    screenshot then shows the screen exactly as the first stage left it."""
+    out = os.path.join(build_dir, "chain2wait")
+    flags = (f"BUILD={out}", "EXTRA_CFLAGS=-DCHAIN2_VIDEO_WAIT=1")
+    return robco_build(os.path.join(CORE, "examples", "chain2"), flags=flags,
+                       image=os.path.join(out, "chain2.img"))
 
 
 @pytest.fixture(scope="session")

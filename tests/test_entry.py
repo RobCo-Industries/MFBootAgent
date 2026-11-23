@@ -15,7 +15,10 @@ def test_alone_without_card(board, mfboot_image):
         assert boot["version"] == "0.1.0"
         assert one(vm, "handoff")["trusted"] == "0"
         screen = one(vm, "screen")
-        assert (screen["fb"], screen["console"], screen["kept"]) == ("0", "0", "0"), screen
+        # Cold: no adopt call runs, the stage starts its own screen.
+        assert (screen["fb"], screen["console"], screen["kept"], screen["path"],
+                screen["adopt_fb"], screen["adopt_console"], screen["unknown"]) == \
+            ("0", "0", "0", "init", "none", "none", "0"), screen
         assert screen["scheme"] == "0"
         sel = one(vm, "input")
         assert (sel["serial"], sel["mini"], sel["script"]) == ("0", "0", "0"), sel

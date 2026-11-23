@@ -167,6 +167,38 @@ def screenshot(vm, tmp_path, name="screen"):
         return img.convert("RGB")
 
 
+# The console font and schemes from RobCo-Core's own console tests.
+from test_console import FH, FW, SCHEMES, load_font  # noqa: E402
+
+WAIT_N1 = "@RC stage=chain2 ev=wait n=1\n"
+
+
+def render_rows(rows, scheme, width=640):
+    """The pixels of `rows` of text in the normal colour of console scheme
+    `scheme` (the boot info's id, from 0), as the console draws them."""
+    _, bg, _dim, normal, _bright = SCHEMES[str(scheme + 1)]
+    font = load_font()
+    img = Image.new("RGB", (width, len(rows) * FH), bg)
+    px = img.load()
+    for r, text in enumerate(rows):
+        for c, ch in enumerate(text):
+            glyph = font[ord(ch)]
+            for y in range(FH):
+                for x in range(FW):
+                    if glyph[y] & (0x80 >> x):
+                        px[c * FW + x, r * FH + y] = normal
+    return img
+
+
+def text_rows(img, first, count):
+    """Text rows first..first+count-1 of a screenshot, as an image."""
+    return img.crop((0, first * FH, img.size[0], (first + count) * FH))
+
+
+def same_pixels(a, b):
+    return a.size == b.size and a.tobytes() == b.tobytes()
+
+
 def check_golden(img, name):
     """Compares with tests/golden/<name>.png. ROBCO_UPDATE_GOLDEN=1 rewrites it."""
     path = os.path.join(GOLDEN_DIR, f"{name}.png")

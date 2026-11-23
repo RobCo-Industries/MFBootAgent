@@ -30,7 +30,6 @@
 #include "menu.h"
 #include "menulines.h"
 #include "mfb.h"
-#include "screen.h"
 
 #define TICK_HZ 100
 #define SCREEN_W 640
@@ -52,8 +51,6 @@ static mfb_menu_t menu;
 static unsigned menu_top;       /* console row of the menu's first row */
 static unsigned menu_rows;      /* MFB_MENU_ROWS(cfg.count) */
 
-/* The text the previous stage left on the screen, read before fb_init(). */
-static mfb_cell_t kept[ROBCO_CONSOLE_MAX_ROWS * ROBCO_CONSOLE_MAX_COLS];
 
 void mfb_mark(const char *fmt, ...)
 {
@@ -106,79 +103,68 @@ void mfb_state_line(char *buf, unsigned size)
 }
 
 /*
- * 1 when the trusted block describes a console this stage can take over:
- * a 32-bit framebuffer of the size this stage uses, with a text grid
- * that fits it and the console buffer.
+ * The screen. After a trusted handoff with a framebuffer it adopts the
+ * previous stage's framebuffer and console: no pixel changes, the old
+ * text stays, the cursor stays where it was. The console does not know
+ * the old characters, so the menu only ever rewrites its own rows. Cold,
+ * or when an adopt call fails, it starts a fresh screen.
  */
-static int screen_usable(const robco_bootinfo_t *bi)
+/* An adopt call's result for the screen marker: its code, or "none" when it did not run. */
+static const char *adopt_rc(char *buf, unsigned size, int ran, int rc)
 {
-    return bi != NULL && (bi->caps & ROBCO_CAP_FB) != 0 && bi->fb_addr != 0 &&
-           bi->fb_depth == 32 && bi->fb_width == SCREEN_W && bi->fb_height == SCREEN_H &&
-           bi->fb_pitch >= SCREEN_W * 4 && bi->con_cols == SCREEN_W / 8 &&
-           bi->con_rows == SCREEN_H / 16 && bi->con_scheme < CONSOLE_SCHEME_COUNT &&
-           bi->con_cols <= ROBCO_CONSOLE_MAX_COLS && bi->con_rows <= ROBCO_CONSOLE_MAX_ROWS &&
-           bi->con_cy < bi->con_rows;
-}
-
-/* Writes the kept cells into the fresh console and puts the cursor where it was. */
-static void replay(unsigned cols, unsigned rows, unsigned cx, unsigned cy)
-{
-    unsigned r, c;
-
-    for (r = 0; r < rows; r++) {
-        for (c = 0; c < cols; c++) {
-            const mfb_cell_t *k = &kept[r * cols + c];
-
-            if (k->ch == ' ' && k->attr == CONSOLE_ATTR_NORMAL) {
-                continue;
-            }
-            console_set_cursor(c, r);
-            console_set_attr(k->attr);
-            console_putc((char)k->ch);
-        }
+    if (!ran) {
+        return "none";
     }
-    console_set_attr(CONSOLE_ATTR_NORMAL);
-    console_set_cursor(cx < cols ? cx : 0, cy);
+    k_snprintf(buf, size, "%d", rc);
+    return buf;
 }
 
-/*
- * The screen. After a trusted handoff it continues the previous stage's
- * screen: same mode, same colour scheme, the old text in place and the
- * cursor where it was. Cold, it starts a green screen.
- */
 static void init_screen(void)
 {
-    const robco_bootinfo_t *bi = bootinfo_get();
+    const robco_bootinfo_t *bi = mfb.inherited ? bootinfo_get() : NULL;
     unsigned scheme = CONSOLE_SCHEME_GREEN;
     unsigned unknown = 0;
-    int keep = 0;
+    fb_info_t info;
+    char fb_buf[12];
+    char con_buf[12];
+    int fb_ran = 0;
+    int con_ran = 0;
+    int rc_fb = -1;
+    int rc_con = -1;
+    int kept;
     int fb;
-    int con = -1;
+    int con;
 
     if (bi != NULL && bi->con_scheme < CONSOLE_SCHEME_COUNT) {
         scheme = bi->con_scheme;
     }
-    if (screen_usable(bi)) {
-        mfb_palette_t pal;
-
-        if (mfb_palette(scheme, bi->fb_order, &pal) == 0) {
-            unknown = mfb_screen_read((const uint8_t *)bi->fb_addr, bi->fb_pitch, bi->con_cols,
-                                      bi->con_rows, &pal, kept);
-            keep = 1;
+    if (bi != NULL && (bi->caps & ROBCO_CAP_FB) != 0) {
+        fb_ran = 1;
+        rc_fb = bootinfo_fb_info(bi, &info);
+        if (rc_fb == 0) {
+            rc_fb = fb_adopt(&info);
+        }
+        if (rc_fb == 0) {
+            con_ran = 1;
+            rc_con = console_adopt(bi->con_cols, bi->con_rows, bi->con_cx, bi->con_cy,
+                                   bi->con_scheme);
         }
     }
-    fb = fb_init(SCREEN_W, SCREEN_H, 32);
-    if (fb == 0) {
-        con = console_init(scheme);
+    kept = rc_fb == 0 && rc_con == 0;
+    if (kept) {
+        fb = 0;
+        con = 0;
+        unknown = bi->con_cols * bi->con_rows;
+    } else {
+        fb = fb_init(SCREEN_W, SCREEN_H, 32);
+        con = fb == 0 ? console_init(scheme) : -1;
     }
     mfb.fb_ok = fb == 0 && con == 0;
-    if (keep && mfb.fb_ok && console_cols() == bi->con_cols && console_rows() == bi->con_rows) {
-        replay(bi->con_cols, bi->con_rows, bi->con_cx, bi->con_cy);
-    } else {
-        keep = 0;
-    }
-    MFB_MARK("screen fb=%d console=%d kept=%d unknown=%u scheme=%u", fb, con, keep, unknown,
-             scheme);
+    MFB_MARK("screen fb=%d console=%d kept=%d unknown=%u scheme=%u path=%s adopt_fb=%s "
+             "adopt_console=%s",
+             fb, con, kept, unknown, scheme, kept ? "adopt" : "init",
+             adopt_rc(fb_buf, sizeof(fb_buf), fb_ran, rc_fb),
+             adopt_rc(con_buf, sizeof(con_buf), con_ran, rc_con));
 }
 
 /* Step 1: entry. Console, trust rule, screen, tick, input and the self check. */
@@ -278,8 +264,10 @@ static void read_config(void)
 }
 
 /*
- * Writes one menu row on the screen, padded with spaces to column 79 so
- * that it covers the text it replaces. to_uart: also one line on the PL011.
+ * Writes one menu row on the screen, padded with spaces to the last
+ * column so that every cell of the row is known and covers what was
+ * there. The console wraps only on the next character, and every caller
+ * moves the cursor first. to_uart: also one line on the PL011.
  */
 static void put_row(unsigned row, const char *text, unsigned attr, int to_uart)
 {
@@ -294,7 +282,7 @@ static void put_row(unsigned row, const char *text, unsigned attr, int to_uart)
         console_set_attr(attr);
         console_write(text, n);
         console_set_attr(CONSOLE_ATTR_NORMAL);
-        for (; n < cols - 1; n++) {
+        for (; n < cols; n++) {
             console_putc(' ');
         }
     }
@@ -363,7 +351,17 @@ static void place_menu(void)
     menu_top = row;
 }
 
-/* The whole menu, on the screen and the PL011. */
+/* Clears a menu row. */
+static void clear_row(unsigned row)
+{
+    put_row(row, "", CONSOLE_ATTR_NORMAL, 0);
+}
+
+/*
+ * The whole menu, on the screen and the PL011. Every row of the menu is
+ * written once, the blank ones too, so the console knows each cell of
+ * the menu and nothing of the earlier text shows inside it.
+ */
 static void draw_menu(void)
 {
     char line[MFB_LINE_MAX];
@@ -376,11 +374,15 @@ static void draw_menu(void)
         put_row(MFB_ROW_LORE + i, mfb_line_lore(i), CONSOLE_ATTR_NORMAL, 1);
     }
     put_row(MFB_ROW_RULE, mfb_line_rule(), CONSOLE_ATTR_DIM, 1);
+    clear_row(MFB_ROW_RULE + 1);
     for (i = 0; i < cfg.count; i++) {
         draw_entry(i, 1);
     }
+    clear_row(after_row(0));
     put_row(after_row(MFB_ROW_HELP_AFTER), mfb_line_help(), CONSOLE_ATTR_DIM, 1);
     draw_status(1);
+    clear_row(after_row(MFB_ROW_ERROR_AFTER));
+    clear_row(after_row(MFB_ROW_START_AFTER));
     (void)mfb_menu_take(&menu, NULL);
 }
 
@@ -443,12 +445,6 @@ static void show_menu(void)
         MFB_MARK("countdown state=start seconds=%d", cfg.timeout);
     }
     MFB_MARK("ready");
-}
-
-/* Clears a menu row. */
-static void clear_row(unsigned row)
-{
-    put_row(row, "", CONSOLE_ATTR_NORMAL, 0);
 }
 
 /* Step 6: a failed load. The error line under the menu, and the menu stays. */
