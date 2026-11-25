@@ -55,6 +55,15 @@ Each row of the menu shows the last result of its test and a short detail. The d
 | `rtc` | Reads the DS1338 at `0x68` | Under 0.1 s |
 | `expander` | Reads the two PCA9554 at `0x20` and `0x21` | Under 0.1 s, then the live view |
 
+Each row shows one of four results:
+
+| Result | Meaning |
+|---|---|
+| OK | The test measured the device and found no fault. The OK covers only what the test measured. The video and audio rows need a person to judge the picture and the sound. |
+| FAILED | The device or its driver gave an error, or a measured value was wrong. |
+| ABSENT | The device did not answer, or only a stand-in for it ran, so there was nothing to measure. No card, no clock chip, no expander and no PWM read ABSENT. |
+| SKIPPED | The test did not run to its end: ESC stopped it, or run all leaves it to a person. |
+
 ### mem
 
 The test writes every range from the end of its own image, BSS and stacks to the top of ARM RAM. The top comes from the boot info, else the mailbox. When both exist, the boot info's range must lie inside the mailbox's ARM memory, or the test fails first with `why=top` and the text "Boot info RAM past mailbox". A smaller range passes: an earlier stage may keep RAM back. It never writes the handoff block, the firmware blob copy, the framebuffer or the image. `dg_mem_ranges()` computes the ranges, cut to 4 KiB pages.
@@ -115,11 +124,18 @@ Alone, a key steps to the next pattern, and each pattern waits at most 30 s. In 
 
 ### audio
 
-Five tones of 150 ms, then a six-note tune, through `audio.h`. The `backend` key says what the library chose. QEMU does not model the PWM, so the library uses its trace backend. That backend prints one `audio` marker per call. It proves the calls, not a sound. Each sound has a bound of its length plus 500 ms.
+Five tones of 150 ms, then a six-note tune, through `audio.h`. The `backend` key says what the library chose, and `probe` says what the PWM probe found. The trace backend prints one `audio` marker per call. It proves the calls, not a sound. Each sound has a bound of its length plus 500 ms. A tone, the tune or a bound that fails gives FAILED on every backend.
 
-When `audio_init()` returns `AUDIO_ERR_NO_PWM` or `AUDIO_ERR_PIN`, the PWM failed and the trace backend took over. The test still plays through the trace, then fails with the `init` code, since no sound came out.
+`dg_audio_judge()` gives the verdict of a clean run from the `audio_init()` code and the backend:
 
-When the PWM probe finds no PWM to drive and `audio_init()` returns 0, as in QEMU, the test plays through the trace and reports "ok" with `backend=trace`. That "ok" proves the calls and their timing, not a sound. A person must listen on a board, and `backend=pwm` is the only result that drove the pins.
+| `init` | `backend` | Result | Why |
+|---|---|---|---|
+| `0` | `pwm` | OK | The PWM registers answered and every call finished in time |
+| `0` | `trace` | ABSENT, "No sound output found." | The probe found no PWM to drive, so no sound could come out. Keys `why=no_pwm output=none` |
+| `AUDIO_ERR_NO_PWM` or `AUDIO_ERR_PIN` | `trace` | FAILED, "No PWM, trace only" | The PWM was asked for and failed, and the trace took over. Key `why=pwm_failed` |
+| any other code | | FAILED, "Audio does not start" | Nothing can play, so the test plays nothing |
+
+OK does not mean sound came out. Nobody checked the speaker. A person must listen on a board. QEMU does not model the PWM, so the probe finds none, the trace backend plays and the row reads ABSENT.
 
 ### input
 
@@ -157,8 +173,8 @@ A test reports OK only for what it measured. Each value a test reads is part of 
 |---|---|---|
 | `mem` | Every word of every pattern, the ranges, the boot info's RAM inside the mailbox's | A boot info range smaller than the mailbox's: an earlier stage may keep RAM back. `flushed`, `cache`, `ms`: they describe the run |
 | `sd` | `sd_init()`, a blank CID, the mount, every chunk and block read, every `/ROBCO` image, the directory read, write attempts | `mid`, `oid`, `pnm`, `psn`: any value a card sends is valid. The partition type: the mount accepts only FAT. `kib_s`, `ms`, `sampled` |
-| `video` | Mailbox answer, width, height, depth, pitch, pixel order, virtual offset, every pattern drawn | Virtual size: the pitch and the offset already cover what the screen shows. Alpha mode: `fb_rgb()` writes alpha `0xff` and the library never sets the mode, so the test has no expected value. A wrong mode shows as a blank picture for the person. The picture: no pixel is read back |
-| `audio` | `audio_init()`, every tone and the tune within its bound, a PWM that fell back to trace | `backend=trace` with `init=0`: no PWM was found to drive, see audio above. The sound itself: only a person hears it |
+| `video` | Mailbox answer, width, height, depth, pitch, pixel order, virtual offset, every pattern drawn | Virtual size: the pitch and the offset already cover what the screen shows. Alpha mode: `fb_rgb()` writes alpha `0xff` and the library never sets the mode, so the test has no expected value. A wrong mode shows as a blank picture for the person. The picture: no pixel is read back, so OK relies on a person who watched the patterns |
+| `audio` | `audio_init()`, every tone and the tune within its bound, the backend that played: a PWM that fell back to trace fails, a trace run with no PWM found is absent | `probe`: the backend already says whether a PWM played. The sound itself: OK means the PWM registers answered and the calls finished in time. Only a person hears the sound |
 | `input` | Nothing past the view opening and closing | `events`, `why`, `gpio`: a missing key press is not a fault without a person who pressed it |
 | `timer` | A tick within 3 s, the window within 10000 ppm, missed ticks, the rate asked against the rate the driver reports | `window_missed`: it explains `us` |
 | `rng` | `rng_init()`, every read, a word equal to the one before, the count of set bits | Nothing else. A constant or all-zero generator fails on repeats or bits |
@@ -173,7 +189,7 @@ Nothing here is validated on real hardware.
 
 Run all runs every test except `input`, then prints `diag_done` with the count of each result. ESC stops the current test with `why=abort`, and the tests after it are skipped with `why=abort` too. It takes about 10 s in QEMU with a 16 MiB card.
 
-The `RUN ALL` row gives FAILED when a test failed. Else it gives SKIPPED when ESC stopped the run, ABSENT when no test gave OK, and OK otherwise.
+The `RUN ALL` row gives FAILED when a test failed. Else it gives SKIPPED when ESC stopped the run, ABSENT when no test gave OK, and OK otherwise. An ABSENT row among OK rows leaves the run OK: a missing device is not a fault. In QEMU with every device, run all reads OK with 7 OK, 1 ABSENT for audio and 1 SKIPPED for input.
 
 ## Markers
 
@@ -211,7 +227,7 @@ The stage name is `diag`. Each line starts with `@RC stage=diag`.
 | `mem` | `ranges start end bytes patterns ms flushed cache`. A fault: `pattern addr expected found bytes`. |
 | `sd` | `probe_rc` in the test build after `sdwrite`, `card mid oid pnm psn blocks vol_lba vol_blocks read sampled chunk_errors errors`, `first_bad` on an error, `ms kib_s files images bad_images others`, `bad_path bad_rc` for the first bad image, `dir_rc` on a directory error, `writes`. No `/ROBCO`: `files=0 dir=missing` in place of the file keys. No card: `why=init rc`. |
 | `video` | `width height depth pitch order patterns judge=person` |
-| `audio` | `backend probe init tones notes` |
+| `audio` | `backend probe init tones notes`. No PWM found: `why=no_pwm output=none`. A PWM that fell back: `why=pwm_failed`. |
 | `input` | `events why gpio`. `why` is `back2`, `long` or `idle`. |
 | `timer` | `ticks hz us ppm limit missed window_missed` |
 | `rng` | `words repeats bits` |
