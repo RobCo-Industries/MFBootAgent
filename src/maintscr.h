@@ -45,18 +45,16 @@ typedef struct {
     unsigned sel;           /* selected action, MFB_MS_* */
     unsigned drawn_sel;     /* the action drawn as selected */
     int dirty;              /* the selection moved since the last mfb_ms_take() */
-    int skip_back;          /* the next BACK does nothing: mfb_start_skip_back() */
 } mfb_ms_t;
 
-/* Starts on the first action. skip_back: the first BACK key does nothing. */
-void mfb_ms_init(mfb_ms_t *s, int skip_back);
+/* Starts on the first action. */
+void mfb_ms_init(mfb_ms_t *s);
 
 /*
  * One MFB_K_* key. UP and DOWN move the bar and stop at the ends.
  * SELECT runs the selected action: MFB_MS_ACT_RUN with *item set, or
  * MFB_MS_ACT_CLOSE for "Back to the boot menu". BACK and QUIT close the
- * screen, except the first BACK when skip_back is set: it only clears
- * skip_back. Every other key does nothing.
+ * screen. Every other key does nothing.
  */
 int mfb_ms_key(mfb_ms_t *s, int key, unsigned *item);
 

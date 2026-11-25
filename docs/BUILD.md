@@ -14,7 +14,7 @@ CI runs in RobCo-Core's container image, pinned in `.github/workflows/ci.yml`.
 
 | Target | What it does |
 |---|---|
-| `make` or `make all` | `build/mfboot.img`, `build/diag.sys`, its test build in `build/diagtest/` and the test operating images in `build/os/` |
+| `make` or `make all` | `build/mfboot.img`, its test build in `build/mfbtest/`, `build/diag.sys`, its test build in `build/diagtest/` and the test operating images in `build/os/` |
 | `make CI=1 all` | The same with `-Werror` |
 | `make test-host` | The pin check, the host unit tests with sanitizers, and RobCo-Core's GCC warning check of the host tests |
 | `make test-target` | The QEMU tests. `BOARD=raspi2b` picks one board. `RETROS_IMG=<file>` adds the whole-chain test. |

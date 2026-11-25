@@ -113,6 +113,10 @@ QEMU models no GPIO pulls, so an undriven line reads 0 and an active-low button 
 
 A press is held until the guest reports its effect, then released. So no check depends on host timing, and none needs the library's timing rule in `tests/target/test_input_gpio.py`. A host stall only makes a test slower. UP and DOWN repeat after 500 ms. The menus in these tests have two entries, so a repeat at an end changes nothing. With SELECT or BACK moved to another pin in `src/maint.c`, `test_menu_up_down_select` and `test_back_held_at_start_opens_maintenance` fail.
 
+### A button released before the start screen opens
+
+The mount is fast in QEMU, so no host timing can release a button between the guard and the start screen. The test build `build/mfbtest/mfboot.img`, made by `make all` with `MFB_TEST=1`, holds the boot just before the start screen while LEFT is held from power-on. It prints `test_hold`. The tests in `test_maint_req.py` hold LEFT and BACK or SELECT, wait for `test_hold`, release the button, then LEFT. The button's release is then queued before the screen opens, and the screen must stay open with no action. LEFT does nothing on the screen. `test_shipped_image_has_no_hold` proves `build/mfboot.img` has no hold. No check depends on host timing.
+
 What stays unverified until hardware:
 
 - A QEMU press is a clean level change. It has no bounce, so the 20 ms debounce only delays it here. The library's own tests play bounce and chatter on its example image, not on this one.

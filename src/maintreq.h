@@ -10,6 +10,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <robco/input.h>
+
 #include "bootcfg.h"
 
 #define MFB_REQ_PATH        "/ROBCO/MAINT.REQ"
@@ -66,14 +68,35 @@ int mfb_req_result(int unlink_rc);
 int mfb_start_screen(int req, int trusted, uint32_t received, int *why);
 
 /*
- * 1 when the screen opened at start ignores its first BACK press: BACK
- * was held through the button guard, whatever `why` opened it, a
- * request or a received bit 1. The guard queues that press, and the
- * person held BACK to reach the screen, not to close it. So the screen
- * never closes the moment it opens. `why` is kept for the caller's
- * marker only.
+ * The keys the screen opened at start acts on. Before it opens, the
+ * main loop has not polled input, so the serial console and the
+ * maintenance port have queued nothing: every event already queued came
+ * from the GPIO buttons. That is the guard's press for a button held at
+ * power-on, its release and repeats, or a button pressed while the card
+ * mounted. Nobody could see the screen yet, so none of these is a
+ * choice on it. The screen drops them, whatever opened it, a request or
+ * a received bit 1.
+ *
+ * mfb_start_keys_init() runs the moment the screen opens. `pending` is
+ * input_pending() then, `held` the mask of the keys down then, bit
+ * (1 << INPUT_KEY_*). The queue is first in, first out, so the next
+ * `pending` events are the ones queued before the screen opened.
  */
-int mfb_start_skip_back(int why, int back_held);
+typedef struct {
+    unsigned pre;       /* events left that were queued before the screen opened */
+    uint32_t stale;     /* GPIO keys held since before it opened, bit (1 << code) */
+} mfb_start_keys_t;
+
+void mfb_start_keys_init(mfb_start_keys_t *k, unsigned pending, uint32_t held);
+
+/*
+ * 1 when the screen acts on `ev`, 0 when it drops it. Dropped: a GPIO
+ * key event queued before the screen opened, and the repeats and the
+ * release of a GPIO key held since then. The first press of that key
+ * after its release acts. Console and port events always act: they are
+ * keys someone sent on purpose, one at a time.
+ */
+int mfb_start_keys_take(mfb_start_keys_t *k, const input_event_t *ev);
 
 /*
  * boot_flags for the image this stage starts. `flags` is what

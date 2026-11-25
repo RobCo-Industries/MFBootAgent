@@ -91,9 +91,10 @@ void mfb_cfg_info(mfb_ms_cfg_t *c);
 
 /*
  * Shows the maintenance screen until the user closes it. why: MFB_WHY_*.
- * skip_back: the first BACK does nothing, see mfb_start_skip_back().
+ * at_start: the screen opened at start, before any key. It then drops
+ * the button events queued before it opened, see mfb_start_keys_take().
  * Returns 1 when the user chose to start the maintenance image, else 0.
  */
-int mfb_maint_run(int why, int skip_back);
+int mfb_maint_run(int why, int at_start);
 
 #endif

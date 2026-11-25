@@ -20,12 +20,11 @@ static const char *const names[MFB_MS_ITEMS] = {
     "verify", "system", "config", "start", "reboot", "back",
 };
 
-void mfb_ms_init(mfb_ms_t *s, int skip_back)
+void mfb_ms_init(mfb_ms_t *s)
 {
     s->sel = 0;
     s->drawn_sel = 0;
     s->dirty = 0;
-    s->skip_back = skip_back != 0;
 }
 
 static void move(mfb_ms_t *s, unsigned sel)
@@ -56,10 +55,6 @@ int mfb_ms_key(mfb_ms_t *s, int key, unsigned *item)
         *item = s->sel;
         return MFB_MS_ACT_RUN;
     case MFB_K_BACK:
-        if (s->skip_back) {
-            s->skip_back = 0;
-            return MFB_MS_ACT_NONE;
-        }
         return MFB_MS_ACT_CLOSE;
     case MFB_K_QUIT:
         return MFB_MS_ACT_CLOSE;

@@ -21,6 +21,7 @@ COLD = 1 << 2
 BIT3 = 1 << 3
 OPEN = re.compile(r"@RC stage=bootagent ev=maint_open [^\n]*\n")
 CLOSE = re.compile(r"@RC stage=bootagent ev=maint_close\r?\n")
+HOLD = re.compile(r"@RC stage=bootagent ev=test_hold\r?\n")
 REQ_LINE = re.compile(r"@RC stage=bootagent ev=maint_req [^\n]*\n")
 NOFILE = re.compile(r"@RC stage=bootagent ev=error code=nofile [^\n]*\n")
 PINS = {"up": 5, "down": 6, "left": 17, "right": 22, "select": 26, "back": 27}
@@ -374,3 +375,85 @@ def test_bit_1_received_and_held_back(board, chain1_maint_image, mfboot, test_os
         key(vm, "back")
         vm.wait_for(CLOSE, timeout=TIMEOUT)
         assert state(vm)["maint"] == "0"
+
+
+# A button held through the guard and released before the start screen
+# opens. The test build holds the boot while LEFT is held: the test
+# releases the button, then LEFT, so the release is queued before the
+# screen opens. LEFT does nothing on the screen.
+
+
+def released_in_window(vm, board, button):
+    """Waits for the test build's hold, then releases `button` and LEFT in that order."""
+    io = PiGpio(vm, board, names=PINS)
+    vm.wait_for(HOLD, timeout=TIMEOUT)
+    assert one(vm, "input")["buttons"] == "active"
+    assert not events(vm, "maint_open"), vm.serial
+    io.release(button)
+    io.release("left")
+
+
+def held_low(*names):
+    return [p for name, p in PINS.items() if name not in names]
+
+
+def check_still_open(vm):
+    vm.wait_for(OPEN, timeout=TIMEOUT)
+    st = state(vm)
+    assert (st["phase"], st["maint"]) == ("menu", "1"), st
+    assert not events(vm, "maint_close"), vm.serial
+    assert not events(vm, "maint_action"), vm.serial
+    assert len(events(vm, "maint_open")) == 1
+
+
+def test_shipped_image_has_no_hold(mfboot, mfboot_test_image):
+    """The hold is in the test build only."""
+    with open(mfboot_test_image, "rb") as f:
+        assert b"test_hold" in f.read()
+    assert b"test_hold" not in mfboot
+
+
+def test_request_and_back_released_before_the_screen(board, mfboot_test_image, test_os,
+                                                     need_mtools, tmp_path):
+    """BACK held through the guard and released before the screen opens: the queued
+    press does not close it. The next BACK does."""
+    sd = req_card(tmp_path, test_os, b"held\n")
+    with alone(mfboot_test_image, board, sd, qtest=True, gpio_high=held_low("back", "left")) as vm:
+        released_in_window(vm, board, "back")
+        check_still_open(vm)
+        assert one(vm, "maint_open")["why"] == "request"
+        key(vm, "back")
+        vm.wait_for(CLOSE, timeout=TIMEOUT)
+        assert state(vm)["maint"] == "0"
+
+
+def test_bit_1_and_back_released_before_the_screen(board, chain1_maint_image, mfboot_test_image,
+                                                   test_os, need_mtools, tmp_path):
+    """The same with a received bit 1: why=flag, the screen stays open."""
+    files = os_files(test_os)
+    with open(mfboot_test_image, "rb") as f:
+        files["/ROBCO/MFBOOT.SYS"] = f.read()
+    with after(chain1_maint_image, board, card(tmp_path, files), qtest=True,
+               gpio_high=held_low("back", "left")) as vm:
+        released_in_window(vm, board, "back")
+        check_still_open(vm)
+        assert one(vm, "handoff")["trusted"] == "1"
+        assert one(vm, "maint_open")["why"] == "flag"
+        key(vm, "back")
+        vm.wait_for(CLOSE, timeout=TIMEOUT)
+        assert state(vm)["maint"] == "0"
+
+
+def test_request_and_select_released_before_the_screen(board, mfboot_test_image, test_os,
+                                                       need_mtools, tmp_path):
+    """SELECT held through the guard with a request: no action runs, no boot. The
+    next SELECT runs the selected action."""
+    sd = req_card(tmp_path, test_os, b"held\n")
+    with alone(mfboot_test_image, board, sd, qtest=True,
+               gpio_high=held_low("select", "left")) as vm:
+        released_in_window(vm, board, "select")
+        check_still_open(vm)
+        assert not events(vm, "jump"), vm.serial
+        key(vm, "select")
+        state(vm)
+        assert one(vm, "maint_action")["name"] == "verify", vm.serial

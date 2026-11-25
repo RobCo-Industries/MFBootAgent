@@ -157,14 +157,146 @@ TEST(screen_at_start)
     CHECK_EQ(why, MFB_WHY_REQUEST);
 }
 
-/* A request and a held BACK count as a request. */
-TEST(held_back_with_a_request)
+static input_event_t key_ev(unsigned source, unsigned code, int value)
 {
-    CHECK_EQ(mfb_start_skip_back(MFB_WHY_REQUEST, 1), 1);
-    CHECK_EQ(mfb_start_skip_back(MFB_WHY_REQUEST, 0), 0);
-    /* A received bit 1 and held BACK: the screen stays open too. */
-    CHECK_EQ(mfb_start_skip_back(MFB_WHY_FLAG, 1), 1);
-    CHECK_EQ(mfb_start_skip_back(MFB_WHY_FLAG, 0), 0);
+    input_event_t e;
+
+    memset(&e, 0, sizeof(e));
+    e.type = INPUT_EV_KEY;
+    e.source = (uint8_t)source;
+    e.code = (uint16_t)code;
+    e.value = value;
+    return e;
+}
+
+static int take(mfb_start_keys_t *k, unsigned source, unsigned code, int value)
+{
+    input_event_t e = key_ev(source, code, value);
+
+    return mfb_start_keys_take(k, &e);
+}
+
+#define GPIO INPUT_SRC_GPIO
+#define HELD(code) ((uint32_t)1 << (code))
+
+static const unsigned start_keys[] = { INPUT_KEY_BACK, INPUT_KEY_SELECT };
+
+/* The guard's press, then its release, both before the screen opened. */
+TEST(start_guard_press_and_release_before)
+{
+    unsigned i;
+
+    for (i = 0; i < 2; i++) {
+        unsigned c = start_keys[i];
+        mfb_start_keys_t k;
+
+        mfb_start_keys_init(&k, 2, 0);
+        CHECK_EQ(take(&k, GPIO, c, INPUT_PRESS), 0);
+        CHECK_EQ(take(&k, GPIO, c, INPUT_RELEASE), 0);
+        CHECK_EQ(k.stale, 0);
+        /* The next press, after the screen opened, acts. */
+        CHECK_EQ(take(&k, GPIO, c, INPUT_PRESS), 1);
+    }
+}
+
+/* The guard's press, the key still held: its repeats and release do nothing. */
+TEST(start_guard_press_still_held)
+{
+    unsigned i;
+
+    for (i = 0; i < 2; i++) {
+        unsigned c = start_keys[i];
+        mfb_start_keys_t k;
+
+        mfb_start_keys_init(&k, 2, HELD(c));
+        CHECK_EQ(take(&k, GPIO, c, INPUT_PRESS), 0);
+        CHECK_EQ(take(&k, GPIO, c, INPUT_REPEAT), 0);
+        CHECK_EQ(take(&k, GPIO, c, INPUT_REPEAT), 0);
+        CHECK_EQ(take(&k, GPIO, c, INPUT_RELEASE), 0);
+        CHECK_EQ(take(&k, GPIO, c, INPUT_PRESS), 1);
+        CHECK_EQ(take(&k, GPIO, c, INPUT_RELEASE), 1);
+    }
+}
+
+/* Press and release before, a second press after the screen opened: it acts. */
+TEST(start_second_press_after_open)
+{
+    unsigned i;
+
+    for (i = 0; i < 2; i++) {
+        unsigned c = start_keys[i];
+        mfb_start_keys_t k;
+
+        mfb_start_keys_init(&k, 2, 0);
+        CHECK_EQ(take(&k, GPIO, c, INPUT_PRESS), 0);
+        CHECK_EQ(take(&k, GPIO, c, INPUT_RELEASE), 0);
+        CHECK_EQ(take(&k, GPIO, c, INPUT_PRESS), 1);
+        /* Pressed after the screen showed: its repeats are the person's. */
+        CHECK_EQ(take(&k, GPIO, c, INPUT_REPEAT), 1);
+    }
+}
+
+/* Console and port keys before the screen opened act: someone sent them on purpose. */
+TEST(start_console_and_port_keys_act)
+{
+    static const unsigned sources[] = { INPUT_SRC_SERIAL, INPUT_SRC_SCRIPT };
+    unsigned i, j;
+
+    for (i = 0; i < 2; i++) {
+        for (j = 0; j < 2; j++) {
+            mfb_start_keys_t k;
+
+            mfb_start_keys_init(&k, 2, 0);
+            CHECK_EQ(take(&k, sources[j], start_keys[i], INPUT_PRESS), 1);
+            CHECK_EQ(take(&k, sources[j], start_keys[i], INPUT_RELEASE), 1);
+            CHECK_EQ(k.pre, 0);
+        }
+    }
+}
+
+/* A port request and a console character count as queued events but always act. */
+TEST(start_chars_act)
+{
+    mfb_start_keys_t k;
+    input_event_t e;
+
+    memset(&e, 0, sizeof(e));
+    e.type = INPUT_EV_CHAR;
+    e.source = INPUT_SRC_SCRIPT;
+    e.value = 1;
+    mfb_start_keys_init(&k, 1, 0);
+    CHECK_EQ(mfb_start_keys_take(&k, &e), 1);
+    CHECK_EQ(k.pre, 0);
+    /* The queued GPIO press behind it is now after the screen opened. */
+    CHECK_EQ(take(&k, GPIO, INPUT_KEY_BACK, INPUT_PRESS), 1);
+}
+
+/* A held key whose press the queue lost: its repeats do nothing, a new press acts. */
+TEST(start_held_without_a_queued_press)
+{
+    mfb_start_keys_t k;
+
+    mfb_start_keys_init(&k, 0, HELD(INPUT_KEY_SELECT));
+    CHECK_EQ(take(&k, GPIO, INPUT_KEY_SELECT, INPUT_REPEAT), 0);
+    CHECK_EQ(take(&k, GPIO, INPUT_KEY_BACK, INPUT_PRESS), 1);
+    CHECK_EQ(take(&k, GPIO, INPUT_KEY_SELECT, INPUT_PRESS), 1);
+    CHECK_EQ(take(&k, GPIO, INPUT_KEY_SELECT, INPUT_REPEAT), 1);
+}
+
+/* Every GPIO key queued before the screen opened does nothing, the others too. */
+TEST(start_every_queued_key)
+{
+    unsigned c;
+
+    for (c = 1; c < INPUT_KEY_COUNT; c++) {
+        mfb_start_keys_t k;
+
+        mfb_start_keys_init(&k, 3, 0);
+        CHECK_EQ(take(&k, GPIO, c, INPUT_PRESS), 0);
+        CHECK_EQ(take(&k, GPIO, c, INPUT_REPEAT), 0);
+        CHECK_EQ(take(&k, GPIO, c, INPUT_RELEASE), 0);
+        CHECK_EQ(take(&k, GPIO, c, INPUT_PRESS), 1);
+    }
 }
 
 /* Every road for bits 1 and 3, from a cold block and from received flags. */

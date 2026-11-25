@@ -57,7 +57,7 @@ Right after the mount, before `BOOT.CFG`, the menu and the countdown, the stage 
 
 The stage never loops. Closing the screen leaves the menu with no countdown, and no image boots without a key. A delete that keeps failing opens the screen again at each start.
 
-A request with `boot_flags` bit 1 received opens one screen, `why=request`. Whenever the screen opens at start, for a request or a received bit 1, with BACK held through the button guard, the screen ignores the first BACK. The guard queues a press for the held BACK, and the screen would otherwise close at once. The next BACK closes it as usual.
+A request with `boot_flags` bit 1 received opens one screen, `why=request`. When the screen opens at start, for a request or a received bit 1, it drops the button events queued before it opened. Before that moment the stage has not polled input, so the queue holds only button events: the guard's press for a held button, its release and repeats, and buttons pressed while the card mounted. A held BACK does not close the screen and a held SELECT runs no action. The repeats and the release of a button still held when the screen opens do nothing too. The next press after the screen shows acts as usual. Keys from the console and the port reach the queue only once the screen polls input, so they always act.
 
 ### 3. BOOT.CFG
 
@@ -292,7 +292,7 @@ An entry header is `entry`, one or more spaces or tabs, then the name. The stage
 | `boot_flags` after this stage | Fallback bit cleared. Bits 1 and 3 by the spec's rule, see [5. Load and handoff](#5-load-and-handoff). Other bits kept. |
 | `fs_stat()` of `MAINT.REQ` fails with an error other than a missing name | No request and a normal boot, with the error in the marker: `maint_req result=none rc=<code>`. `rc=0` only for a missing name or a folder. The spec does not name this case. |
 | `choose` for the fixed path `/ROBCO/MAINT.SYS` | `index=-1 name=MAINT`. Entries count from 1, so neither 0 nor -1 is a real index, and -1 reads plainly as none. The spec does not name the index. |
-| BACK held at start when a request or a received bit 1 opens the screen | The screen ignores the BACK press the guard queued, so it stays open whatever `why` is. The marker keeps `why=request` or `why=flag`. |
+| A button held at start when a request or a received bit 1 opens the screen | The screen drops every button event queued before it opened, and the repeats and release of a button held since then. BACK does not close it and SELECT runs no action, whatever `why` is. Console and port keys always act. The marker keeps `why=request` or `why=flag`. |
 | `MAINT` entry name | Matched in any case, as `BOOT.CFG` compares entry names |
 | Markers of the maintenance screen | `maint_open`, `maint_drop`, `maint_action`, `verify_entry`, `verify_done`, `maint_close`, and `source=screen` for `reboot` |
 | `input` keys | The spec's keys, plus `gpio buttons repeat live` |

@@ -60,7 +60,7 @@ The stage reads six buttons, each from a GPIO pin to ground. It uses the pin's o
 
 Hold UP or DOWN and the bar moves again after half a second, then every 150 ms. The other buttons do not repeat.
 
-At start the stage samples the pins for 100 ms. If every button reads pressed, it takes that as no buttons wired and stops reading them. The keyboard on the serial line still works. A button held down at power-on does not stop the others, as long as one button reads released. A button still held when the check ends counts as one press once the menu shows. Hold BACK at power-on to open the maintenance screen. Hold SELECT to boot the default entry at once.
+At start the stage samples the pins for 100 ms. If every button reads pressed, it takes that as no buttons wired and stops reading them. The keyboard on the serial line still works. A button held down at power-on does not stop the others, as long as one button reads released. A button still held when the check ends counts as one press once the menu shows. Hold BACK at power-on to open the maintenance screen. Hold SELECT to boot the default entry at once. When a maintenance request or the earlier stage opens the maintenance screen at start, a button held at power-on does nothing on it. Release the button and press again to use the screen.
 
 The buttons are tested in QEMU only. The tests press them as clean level changes, with no bounce. No board with buttons has run this code.
 

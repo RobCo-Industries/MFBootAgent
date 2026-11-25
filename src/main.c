@@ -588,7 +588,7 @@ void mfb_reboot(const char *source)
  * The maintenance screen, then the menu again below it. The menu state
  * stays as it was: the countdown does not start again.
  */
-static void maint_screen(int why, int skip_back)
+static void maint_screen(int why, int at_start)
 {
     if (mfb.maint_req != 0) {
         /* A key opened it before the port's request came up: the screen it asked for shows. */
@@ -599,7 +599,7 @@ static void maint_screen(int why, int skip_back)
     if (why != MFB_WHY_FLAG) {
         mfb.user_maint = 1;
     }
-    start_maint = mfb_maint_run(why, skip_back);
+    start_maint = mfb_maint_run(why, at_start);
     mfb.maint_open = 0;
     place_menu();
     draw_menu();
@@ -653,13 +653,30 @@ static int menu_loop(void)
     }
 }
 
+#if MFB_TEST
+/*
+ * The test build only, build/mfbtest: with LEFT held at power-on, the
+ * start screen waits until LEFT is released. A test changes the other
+ * buttons in that window, after the guard and before the screen opens.
+ */
+static void test_hold(void)
+{
+    if (input_key_down(INPUT_KEY_LEFT)) {
+        MFB_MARK("test_hold");
+        while (input_key_down(INPUT_KEY_LEFT)) {
+            __asm__ volatile("wfi" ::: "memory");
+        }
+    }
+}
+#endif
+
 /* Step 4: the menu. */
 static void show_menu(void)
 {
     /*
      * A request, or bit 1 received: the maintenance screen opens in place
-     * of the countdown. With BACK held, whatever opened it, the BACK
-     * press the guard queued does not close it.
+     * of the countdown. The button events queued before it opened, such
+     * as the guard's press for a held key, do nothing on it.
      */
     int why = MFB_WHY_FLAG;
     int at_start = mfb_start_screen(mfb.req, mfb.inherited, mfb.flags_in, &why);
@@ -678,7 +695,10 @@ static void show_menu(void)
     }
     MFB_MARK("ready");
     if (at_start) {
-        maint_screen(why, mfb_start_skip_back(why, input_key_down(INPUT_KEY_BACK)));
+#if MFB_TEST
+        test_hold();
+#endif
+        maint_screen(why, 1);
     }
 }
 

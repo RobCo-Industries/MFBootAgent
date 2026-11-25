@@ -43,7 +43,7 @@ TEST(every_key_on_every_action)
             int key = all_keys[k];
             int act;
 
-            mfb_ms_init(&s, 0);
+            mfb_ms_init(&s);
             s.sel = sel;
             s.drawn_sel = sel;
             act = mfb_ms_key(&s, key, &item);
@@ -84,23 +84,6 @@ TEST(every_key_on_every_action)
     }
 }
 
-TEST(skip_back_drops_only_the_first_back)
-{
-    unsigned item = 99;
-
-    mfb_ms_init(&s, 1);
-    CHECK_EQ(mfb_ms_key(&s, MFB_K_DOWN, &item), MFB_MS_ACT_NONE);
-    CHECK_EQ(s.skip_back, 1);
-    CHECK_EQ(mfb_ms_key(&s, MFB_K_BACK, &item), MFB_MS_ACT_NONE);
-    CHECK_EQ(s.skip_back, 0);
-    CHECK_EQ(mfb_ms_key(&s, MFB_K_BACK, &item), MFB_MS_ACT_CLOSE);
-    /* Q still closes while the skip waits. */
-    mfb_ms_init(&s, 1);
-    CHECK_EQ(mfb_ms_key(&s, MFB_K_QUIT, &item), MFB_MS_ACT_CLOSE);
-    mfb_ms_init(&s, 0);
-    CHECK_EQ(mfb_ms_key(&s, MFB_K_BACK, &item), MFB_MS_ACT_CLOSE);
-}
-
 TEST(request_rows)
 {
     static mfb_ms_page_t page;
@@ -131,7 +114,7 @@ TEST(take_reports_the_drawn_action)
     unsigned item = 0;
     unsigned old = 99;
 
-    mfb_ms_init(&s, 0);
+    mfb_ms_init(&s);
     CHECK_EQ(mfb_ms_take(&s, &old), 0);
     mfb_ms_key(&s, MFB_K_DOWN, &item);
     mfb_ms_key(&s, MFB_K_DOWN, &item);

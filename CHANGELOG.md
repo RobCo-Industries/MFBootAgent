@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `boot_flags` bit 1 is set when the user opened the maintenance screen, and kept when it arrived set.
 - `docs/USER_MANUAL.md`.
 - The maintenance request. After the mount the agent looks for `/ROBCO/MAINT.REQ`, reads its line, deletes it with `fs_unlink()` and prints `maint_req`. A request opens the maintenance screen with `why=request`, with the line and, after a failed delete, a notice. This delete is the only write the agent makes on the card.
+- A button held at power-on does nothing on the screen a request or a received bit 1 opens at start. The screen drops the button events queued before it opened, and the repeats and release of a button held since then.
 - `boot_flags` bit 3 for a request found this boot. Bit 1 is also set for a request and for any maintenance image the agent starts.
 - The maintenance screen's Start the maintenance image, from the `MAINT` entry or `/ROBCO/MAINT.SYS`.
 - QEMU tests that press GPIO buttons through RobCo-Core's `harness.pigpio`: the boot menu with UP, DOWN and SELECT, BACK and DOWN held at start, the all-lines-low guard, and two buttons in the `DIAG.SYS` input view.
