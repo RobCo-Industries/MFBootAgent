@@ -18,7 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - An error line under the menu when a load fails, and the halted state when no card or volume is usable.
 - The maintenance port with `state`, `dump` and `reboot`.
 - Host tests, QEMU tests on four boards, a test operating image and CI.
-- `DIAG.SYS`, a diagnostics image of subtype 3 with tests of RAM, the SD card, video, audio, input, the timer, the RNG, the clock chip and the I/O expanders. `make sdimage` puts it on the card. A test reports OK only for what it measured: the memory test flushes the D-cache before each check, the SD test counts any write attempt and fails on a failed multi-block read even when every block reads alone, a failed expander attach fails, a PWM that fell back to the trace backend fails the audio test, and a stopped run all is never OK.
+- `DIAG.SYS`, a diagnostics image of subtype 3 with tests of RAM, the SD card, video, audio, input, the timer, the RNG, the clock chip and the I/O expanders. `make sdimage` puts it on the card. A test reports OK only for what it measured: the memory test flushes the D-cache before each check, the SD test counts any write attempt and fails on a failed multi-block read even when every block reads alone, a failed expander attach fails, a PWM that fell back to the trace backend fails the audio test, and a stopped run all is never OK. The timer test reports `window_missed`, the ticks missed inside its window.
 
 ### Changed
 

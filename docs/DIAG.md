@@ -121,7 +121,7 @@ Each event shows on the screen and as an `input_event` marker, with its source, 
 
 ### timer
 
-The tick interrupt reads the system timer at its first tick and 100 ticks later, 1 s at 100 Hz. The limit is one tick period over the window, 10000 ppm. A missed tick fails. The test gives up after 3 s with no tick.
+The tick interrupt reads the system timer at its first tick and 100 ticks later, 1 s at 100 Hz. The limit is one tick period over the window, 10000 ppm. A missed tick fails. `missed` counts every tick missed during the test. `window_missed` counts those between the first and the last tick, so `us` covers 100 plus `window_missed` periods. The test gives up after 3 s with no tick.
 
 ### rng
 
@@ -186,7 +186,7 @@ The stage name is `diag`. Each line starts with `@RC stage=diag`.
 | `video` | `width height depth pitch order patterns judge=person` |
 | `audio` | `backend probe init tones notes` |
 | `input` | `events why gpio`. `why` is `back2`, `long` or `idle`. |
-| `timer` | `ticks hz us ppm limit missed` |
+| `timer` | `ticks hz us ppm limit missed window_missed` |
 | `rng` | `words repeats bits` |
 | `rtc` | `addr chip halted time` |
 | `expander` | `x0 in0 out0 pol0 cfg0`, `x0=absent` or `x0=error rc0`, the same for chip 1, `attach0=error rc0` when the attach failed, the same for chip 1, `view` after the live view, and `errors` when a read failed |

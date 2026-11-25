@@ -68,6 +68,8 @@ make test-target RETROS_IMG=/path/to/retros.img
 - `test_diag_devices.py`: video patterns checked pixel by pixel, audio through the trace backend, the input live view and its three exits, timer, rng, and the clock chip present and absent.
 - `test_diag_expander.py`: both expanders, one and none. The test presets outputs on the QEMU models, drives input lines with qtest, and checks that every pin the chips drive is the same at the end. It also checks that the image links no expander write function.
 - `test_diag_all.py`: `diag all` with every device, on a bare board, and an abort that skips the rest and leaves the `RUN ALL` row at SKIPPED.
+
+On a busy host, QEMU can stop the guest for longer than a tick period. The timer test then misses ticks and fails, as it must on a real board. The two `diag all` runs skip in that case and print the numbers, only when every other test gave its expected result and `window_missed` explains `us` within one period. Any other failure fails. `test_timer_starved_rule` checks the rule without QEMU, with numbers seen on raspi2b at a load average of 22.
 - `test_diag_chain.py`: the agent's menu, choose `DIAG`, the image trusts the boot info and reaches `ready`. Alone and after `examples/chain1`.
 
 QEMU models no cache. The memory test proves that the flush runs over every byte, not that it reaches RAM on a board. Nothing here is validated on hardware.

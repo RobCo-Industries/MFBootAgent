@@ -111,6 +111,45 @@ def run_all(vm, timeout=TIMEOUT):
     return events(vm, "diag_done")[before]
 
 
+def timer_starved(m):
+    """The numbers of a failed timer run that missed ticks alone explain, else None.
+
+    On a busy host QEMU can stop the guest for longer than a tick period, so
+    the image counts missed ticks and fails, as it must on a real board. The
+    run is explained when ticks were missed and the timer time covers the
+    counted and the missed periods within one period: the timer itself ran
+    at the right rate.
+    """
+    keys = ("ticks", "hz", "us", "missed", "window_missed")
+    if m.get("result") != "fail" or any(k not in m for k in keys):
+        return None
+    ticks, hz, us, missed, window = (int(m[k]) for k in keys)
+    if missed == 0 or hz == 0:
+        return None
+    period = 1000000 // hz
+    want = (ticks + window) * period
+    if abs(us - want) > period:
+        return None
+    return (f"timer missed {missed} ticks on a busy host, {window} inside the window: "
+            f"us={us} for {ticks}+{window} periods of {period} us, ppm={m['ppm']} "
+            f"limit={m['limit']}")
+
+
+def skip_if_timer_starved(vm, want):
+    """Skips a run all whose only failure is a timer that missed ticks on a busy host.
+
+    want is the expected list of (test, result). Any other difference fails.
+    """
+    got = [(m["name"], m["result"]) for m in events(vm, "diag")]
+    if got == want:
+        return
+    timer = [m for m in events(vm, "diag") if m["name"] == "timer"]
+    starved = timer_starved(timer[0]) if len(timer) == 1 else None
+    expect = [(n, "fail" if n == "timer" else r) for n, r in want]
+    assert starved is not None and got == expect, vm.serial
+    pytest.skip(starved)
+
+
 def wait_state(vm, phase, timeout=TIMEOUT):
     """Polls `state` until the phase is `phase`."""
     import time

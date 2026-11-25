@@ -29,17 +29,21 @@ static volatile int armed;      /* 1: waiting for the first tick, 2: counting */
 static volatile uint32_t counted;
 static volatile uint64_t t_first;
 static volatile uint64_t t_last;
+static volatile uint32_t m_first;   /* tick_missed() at the first tick */
+static volatile uint32_t m_last;    /* and at the last one */
 
 void dg_timer_tick(void)
 {
     if (armed == 1) {
         t_first = timer_now_us();
+        m_first = tick_missed();
         counted = 0;
         armed = 2;
     } else if (armed == 2) {
         counted++;
         if (counted == TICKS) {
             t_last = timer_now_us();
+            m_last = tick_missed();
             armed = 0;
         }
     }
@@ -74,8 +78,10 @@ void dg_test_timer(dg_run_t *r)
     }
     missed = tick_missed() - missed0;
     r->result = dg_timer_judge(t_last - t_first, TICKS, tick_hz(), missed, &ppm, &limit);
-    dg_keys(r, "ticks=%u hz=%u us=%u ppm=%d limit=%u missed=%u", TICKS, (unsigned)tick_hz(),
-            (unsigned)(t_last - t_first), (int)ppm, (unsigned)limit, (unsigned)missed);
+    /* window_missed: the missed ticks between the first and the last tick, inside us. */
+    dg_keys(r, "ticks=%u hz=%u us=%u ppm=%d limit=%u missed=%u window_missed=%u", TICKS,
+            (unsigned)tick_hz(), (unsigned)(t_last - t_first), (int)ppm, (unsigned)limit,
+            (unsigned)missed, (unsigned)(m_last - m_first));
     dg_text(r, DG_TX_TMR_OK, (int)ppm, (unsigned)missed);
 }
 
