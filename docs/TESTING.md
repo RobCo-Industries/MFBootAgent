@@ -15,6 +15,12 @@
 | `test_menulines.c` | Every line of the screen and the 79-column limit |
 | `test_boot.c` | Loader results to codes and lines, the accepted subtypes, the header check order up to the subtype, the boot info fields this stage writes, the four cases of the `boot_flags` bit 1 rule |
 | `test_keymap.c` | Every key code with press, repeat and release, every character, other events |
+| `test_maint_ui.c` | The maintenance image's menu, the yes and no rule of a question, the stop keys, the tool names and every row within 79 columns |
+| `test_maint_cfg.c` | `[maint]` of `BOOT.CFG`: off by default, `on` and `off` in any case, bad values, last value wins, two sections, unknown keys, a bad line |
+| `test_maint_walk.c` | The check card walk over a fake tree: counts, each failure with its path, a folder read error, the depth and path limits, a stop that closes every folder, a root that does not open |
+| `test_maint_view.c` | The view file pager: line ends, wraps, tabs, binary bytes shown as `.`, the 16384-byte cap, an empty file |
+| `test_maint_clock.c` | The set clock form: buttons, typed digits, wraps, and the check of the chip's range and the calendar |
+| `test_maint_users.c` | The restore users decision table: only a yes after the question writes |
 | `test_maintscr.c` | Every key on every action, every page's lines, long names and paths cut as the menu cuts them, the screen on 80 by 18 and 80 by 30 grids |
 
 ## Target tests
@@ -86,6 +92,19 @@ These skips go through RobCo-Core's `harness.hosttiming.skip()`, with the reason
 QEMU models no cache. The memory test proves that the flush runs over every byte, not that it reaches RAM on a board. Nothing here is validated on hardware.
 
 `test_diag_mem.py` allows a full pass `HOST_ALLOWANCE`, 20 s, above 10 s. The input idle test waits 20 s. Each test file takes under 35 s per board.
+
+
+## The maintenance image
+
+`tests/test_maint_*.py` start `build/maint.sys` alone, through a two-word image at `0x8000`, or from the agent's `MAINT` entry, with the helpers in `tests/maintimg.py`. They drive it through the maintenance port with `tool <name>`, `key`, `char` and `text`, and send Ctrl-C on the serial console. They read the screen only after `state()`. Each card test hashes the card file before and after a read-only tool, and reads `/UOS` with mtools after restore users.
+
+- `test_maint_image.py`: the markers in order, the menu, the start from the agent's menu with a trusted handoff and an adopted screen, no card, the port commands, the `[maint]` cases of the spec's key table, a missing `BOOT.CFG` and a bad line. The shipped image answers `wprobe` with `err unknown command` and prints no `write_hook`. The test build prints it.
+- `test_maint_card.py`: a good card, a file whose directory entry claims more bytes than its clusters hold, a card filled to its last 64 KiB with the port answering during the walk, a stop, and the write probe.
+- `test_maint_images.py`: a good card, a truncated and a wrong-CRC image, an empty and a short one, no `/ROBCO`, and the write probe.
+- `test_maint_view.py`: `BOOT.CFG` over three pages, a missing, an empty, an oversized and a binary file, ENTER to close, a cancel, and the write probe. Only `BOOT.CFG` is offered: the spec gives no path for the other three names.
+- `test_maint_clock.py`: no chip, typed digits and a yes read back from QEMU's DS1338, buttons and ESC at the question, an invalid date and the year 2100, Ctrl-C.
+- `test_maint_users.py`: the setting absent, off and bad; no default file and an empty one; `n`, ESC, Ctrl-C, `q` and DOWN at the question; ENTER, `y` and `Y`. A yes leaves `SYSUAF.DAT` equal to the default byte for byte and no work file. Every refusal leaves the old bytes.
+- `test_maint_restart.py`: restart from the port and from the menu, then the image boots again.
 
 ## GPIO buttons
 

@@ -64,7 +64,7 @@ At start the stage samples the pins for 100 ms. If every button reads pressed, i
 
 The buttons are tested in QEMU only. The tests press them as clean level changes, with no bounce. No board with buttons has run this code.
 
-The diagnostics image reads the same six pins, plus a dial. See [DIAG.md](DIAG.md).
+The diagnostics image reads the same six pins, plus a dial. See [DIAG.md](DIAG.md). The maintenance image reads the same six pins. See [MAINT.md](MAINT.md).
 
 ### The countdown
 
@@ -73,6 +73,10 @@ With `timeout` set in `BOOT.CFG`, the status row counts down: `Booting UOS in 3 
 ## Starting an image
 
 When you boot an entry, the stage shows `Loading <name> from <path>`. It checks the image header, loads the file into the OS slot at `0x00400000` and checks its CRC. Then it shows `Starting <name>.` and hands over. The next stage writes below that line.
+
+## The maintenance image
+
+The `MAINT` entry starts `MAINT.SYS`, the maintenance image. It needs no login: being at the terminal is the authority. It has six tools: check card, check images, view file, set clock, restore users and restart. Restore users puts back the default user file when every password is lost. It is off unless `BOOT.CFG` has `restore_users = on` in a `[maint]` section. [MAINT.md](MAINT.md) describes each tool.
 
 ## Error lines
 

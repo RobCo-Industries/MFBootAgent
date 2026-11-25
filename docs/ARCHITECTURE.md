@@ -43,3 +43,7 @@ The image is 83964 bytes. With BSS and stacks it takes 143632 bytes (`mem_size` 
 ## The diagnostics image
 
 `diag/` builds `DIAG.SYS` with its own `Makefile` and `robco_config.h`. The pure files hold the decisions and have host tests: `dg_mem.c` the RAM ranges and patterns, `dg_sd.c` the read plan, the file rule and the write guard, `dg_menu.c` the menu and the live view exit rule, `dg_fmt.c` the lines, markers, verdicts, the run-all result and the expander attach rule. `main.c` holds the entry, the screen, the menu loop and the port. Each `t_*.c` file is a thin layer over the drivers for one or more tests. [DIAG.md](DIAG.md) describes the image.
+
+## The maintenance image
+
+`maint/` builds `MAINT.SYS` with its own `Makefile` and `robco_config.h`. The pure files hold the decisions and have host tests: `mt_ui.c` the menu, names, lines and the answer rule, `mt_cfg.c` the `[maint]` section, `mt_walk.c` the card walk, `mt_view.c` the pager, `mt_clock.c` the clock form, `mt_users.c` the restore users table. `main.c` holds the entry, the screen, the menu loop, the port and restart. Each `t_*.c` file is one tool over the drivers. It compiles `diag/dg_sd.c` for the write guard and the `/ROBCO` scan, `diag/dg_sdimg.c` for the image check, `diag/dg_fmt.c` for the progress rate and `src/portreq.c`. [MAINT.md](MAINT.md) describes the image.

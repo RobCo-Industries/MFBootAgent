@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `boot_flags` bit 1 is set when the user opened the maintenance screen, and kept when it arrived set.
 - `docs/USER_MANUAL.md`.
 - QEMU tests that press GPIO buttons through RobCo-Core's `harness.pigpio`: the boot menu with UP, DOWN and SELECT, BACK and DOWN held at start, the all-lines-low guard, and two buttons in the `DIAG.SYS` input view.
+- `MAINT.SYS`, the maintenance image of subtype 2, with check card, check images, view file, set clock, restore users and restart. It needs no login. Restore users is off unless `BOOT.CFG` has `[maint] restore_users = on`. The read-only tools run behind `DIAG.SYS`'s write guard and fail on any write. `make sdimage` puts it on the card in place of the test image. `docs/MAINT.md` describes it. The agent and `DIAG.SYS` mount one file system volume.
 
 ### Changed
 

@@ -18,6 +18,8 @@ What works, in QEMU on `raspi0`, `raspi1ap`, `raspi2b` and `raspi3b`:
 
 It also builds `DIAG.SYS`, a diagnostics image with nine hardware tests. See [docs/DIAG.md](docs/DIAG.md).
 
+It also builds `MAINT.SYS`, the maintenance image with six tools for the card, the clock and the user file. See [docs/MAINT.md](docs/MAINT.md).
+
 Every planned part exists now: the menu, the maintenance screen, the buttons and the diagnostics image.
 
 Nothing has been tried on real hardware.
@@ -45,6 +47,7 @@ make run BOARD=raspi2b   # boot build/sd.img in QEMU
 - [docs/BUILD.md](docs/BUILD.md): tools, targets and the card.
 - [docs/TESTING.md](docs/TESTING.md): how the tests start the stage and what they check.
 - [docs/DIAG.md](docs/DIAG.md): the diagnostics image, its tests and markers.
+- [docs/MAINT.md](docs/MAINT.md): the maintenance image, its tools and markers.
 - [CONTRIBUTING.md](CONTRIBUTING.md) and [CHANGELOG.md](CHANGELOG.md).
 
 ## Licence
