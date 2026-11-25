@@ -50,7 +50,7 @@ flowchart TD
 | `1` to `6` | Start that tool |
 | ESC, BACK or Ctrl-C | Stop or cancel a tool |
 
-Keys come from the serial console, the maintenance port and the six buttons: UP 5, DOWN 6, LEFT 17, RIGHT 22, SELECT 26, BACK 27, the pins of BOARD_SUPPORT.md in RobCo-Core. The image reads no dial.
+Keys come from the serial console, the maintenance port and the six buttons: UP 5, DOWN 6, LEFT 17, RIGHT 22, SELECT 26, BACK 27, the pins of BOARD_SUPPORT.md in RobCo-Core. The image reads no dial. The buttons do not repeat. Before the menu, the image waits up to 1 s for the GPIO backend's stuck-line guard, as the agent does. The `input` marker gives the backend state in `buttons`.
 
 Each menu row shows the last result of its tool and a short detail. The status row under the help line shows the last result in full. A tool writes its lines in the work area under the menu, rows 14 to 29.
 
@@ -68,7 +68,7 @@ Every card access goes through a write guard in front of the card's block device
 |---|---|---|
 | Check card | Every folder and every file of the boot volume, each file whole | Nothing |
 | Check images | Every image file in `/ROBCO` | Nothing |
-| View file | `/ROBCO/BOOT.CFG` | Nothing |
+| View file | `/ROBCO/BOOT.CFG`, `/UOS/UOS.CFG`, `/UOS/DEVICES.CFG`, `/UOS/HOME/<user>/TERMINAL.CFG` | Nothing |
 | Set clock | The clock chip at `0x68` | The time on the chip, after a yes |
 | Restore users | `/UOS/SYSUAF.DEF` | `/UOS/SYSUAF.DAT`, after a yes, only with the setting on |
 | Restart | Nothing | Nothing |
@@ -107,9 +107,20 @@ OK means every image passed. A bad image fails the tool. No `/ROBCO` fails with 
 
 ### View file
 
-The tool offers the files of its table by name, with their paths. Choose one with UP, DOWN or its digit, then ENTER. ESC cancels, with `why=cancel`.
+The tool offers these files by name, with their paths:
 
-The spec offers `BOOT.CFG`, `UOS.CFG`, `DEVICES.CFG` and `TERMINAL.CFG` by name. It gives the path of `BOOT.CFG` only. The other three are not offered until the spec gives their paths.
+| Name | Path |
+|---|---|
+| `BOOT.CFG` | `/ROBCO/BOOT.CFG` |
+| `UOS.CFG` | `/UOS/UOS.CFG` |
+| `DEVICES.CFG` | `/UOS/DEVICES.CFG` |
+| `<user>/TERMINAL.CFG` | `/UOS/HOME/<user>/TERMINAL.CFG`, one per user |
+
+UOS keeps a `TERMINAL.CFG` per user. The tool lists the folders of `/UOS/HOME` in directory order, at most 16, and offers `<user>/TERMINAL.CFG` for each folder that holds one. A 17th user folder is not listed, and the chooser says the list is cut. With no `/UOS/HOME`, or no `TERMINAL.CFG` in it, the chooser offers the three fixed files and says so. The listing only reads, behind the guard.
+
+`fs_readdir()` already skips `.` and `..`. The library gives no other skip rule, but it gives each entry's attributes, so the tool also skips names that start with `.`, hidden and system entries, and the work names of `fs_write_file_atomic()`. A path longer than 255 characters is not offered.
+
+The chooser shows 13 rows and scrolls. UP and DOWN move, ENTER opens, ESC cancels with `why=cancel`. A file that is offered but missing gives ABSENT. Each listing prints a `view_list` marker.
 
 The pager does not parse the file. Its rules:
 
@@ -190,7 +201,7 @@ The stage name is `maint`. Each line starts with `@RC stage=maint`. The image pr
 | `boot` | `midr soc base board_rev mem entry_mode version` |
 | `handoff` | `trusted`, then `flags` when trusted |
 | `screen` | `fb console path scheme cols rows` |
-| `input` | `serial mini script gpio` |
+| `input` | `serial mini script gpio buttons` |
 | `selfcheck` | `rc size` |
 | `write_hook` | `name=guard`, test builds only |
 | `error` | `code=io what=sd rc` or `code=io what=fat rc`, when the card or the mount fails |
@@ -202,6 +213,7 @@ The stage name is `maint`. Each line starts with `@RC stage=maint`. The image pr
 | `progress` | `name pct`, at most one per 500 ms |
 | `card_error` | `path what rc` |
 | `image` | `path size rc` |
+| `view_list` | `files users cut home`. `home` is `ok` or `missing`. |
 | `view_choose` | `sel name` |
 | `view_page` | `first last lines` |
 | `i2c` | `rc`, at the first use of I2C |
@@ -246,6 +258,11 @@ The test build, `build/mainttest/maint.img`, adds `wprobe`. The next read-only t
 - `src/portreq.c`: the port request rule.
 
 The screen rows, the screen set-up, the input set-up and the port commands are copied from `diag/main.c`. Sharing them would mean reshaping `DIAG.SYS`'s state.
+
+## For the next spec update
+
+- The view file paths: `/ROBCO/BOOT.CFG`, `/UOS/UOS.CFG`, `/UOS/DEVICES.CFG` and `/UOS/HOME/<user>/TERMINAL.CFG`, with the limit of 16 user folders. The spec names the files but gives only the first path.
+- The skip rule for `/UOS/HOME` entries above, since the library gives none past `.` and `..`.
 
 ## Out of scope
 
