@@ -6,6 +6,8 @@ import re
 import struct
 import tempfile
 
+import timing_skips
+
 from harness.boot import boot, parse_markers
 
 DIAG_SLOT = 0x00400000
@@ -147,7 +149,19 @@ def skip_if_timer_starved(vm, want):
     starved = timer_starved(timer[0]) if len(timer) == 1 else None
     expect = [(n, "fail" if n == "timer" else r) for n, r in want]
     assert starved is not None and got == expect, vm.serial
-    pytest.skip(starved)
+    timing_skips.skip(starved)
+
+
+def skip_if_timer_alone_starved(vm, m):
+    """Skips a timer run started alone that failed only by missed ticks on a busy host.
+
+    m is the timer's diag marker. A pass returns. Any other failure fails.
+    """
+    if m.get("result") == "ok":
+        return
+    starved = timer_starved(m)
+    assert starved is not None, vm.serial
+    timing_skips.skip(starved)
 
 
 def wait_state(vm, phase, timeout=TIMEOUT):
@@ -162,19 +176,6 @@ def wait_state(vm, phase, timeout=TIMEOUT):
         time.sleep(0.1)
 
 
-def state(vm):
-    reply = command(vm, "state")
-    assert len(reply.lines) == 1, reply
-    return dict(field.split("=", 1) for field in reply.lines[0].split())
-
-
-def dump(vm):
-    reply = command(vm, "dump")
-    head = parse_markers(reply.lines[0] + "\n")[0]
-    rows = [line[1:] for line in reply.lines if line.startswith("|")]
-    return head, rows
-
-
 def key(vm, name, value=None):
     command(vm, f"key {name}" + ("" if value is None else f" {value}"))
 
@@ -184,6 +185,9 @@ def key(vm, name, value=None):
 import pytest  # noqa: E402
 
 import mfboot  # noqa: E402
+# The image's port shares the agent's state and dump protocol: state()
+# waits for pending=0, batch() sends raw lines and reads every reply.
+from mfboot import batch, dump, state  # noqa: E402,F401
 
 
 @pytest.fixture(scope="session")

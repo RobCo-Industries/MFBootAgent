@@ -4,7 +4,8 @@ import re
 import time
 
 from diag import (RTC, TESTS, TIMEOUT, X0, X1, alone, command, diag_image, dump,  # noqa: F401
-                  events, good_card, key, run_all, skip_if_timer_starved, timer_starved)
+                  events, good_card, key, run_all, skip_if_timer_starved, state,
+                  timer_starved)
 
 # The whole run on a busy host stays under this.
 LIMIT_S = 30
@@ -30,6 +31,7 @@ def test_all_with_every_device(board, diag_image, good_card):
         assert mem["bytes"] == str(16 << 20), mem
         # Video showed each pattern for a short time, with no key.
         assert len(events(vm, "video_pattern")) == 8
+        state(vm)
         _, rows = dump(vm)
         assert rows[17] == "Run all: 8 OK, 0 FAILED, 0 ABSENT, 1 SKIPPED.", rows
         assert rows[8].startswith("  5  INPUT     Live view of every key       SKIPPED  "), rows
@@ -60,6 +62,7 @@ def test_abort_stops_the_rest(board, diag_image, good_card):
         done = events(vm, "diag_done")[0]
         assert (done["ok"], done["skipped"]) == ("1", "8"), done
         # A stopped run is never OK.
+        state(vm)
         _, rows = dump(vm)
         assert "SKIPPED  1 ok, 0 failed" in rows[13], rows
         # The tests after the abort never started.

@@ -365,11 +365,19 @@ static int command(int argc, char *argv[], input_script_reply_t *reply, void *ct
 
     (void)ctx;
     if (k_strcmp(argv[0], "state") == 0 && argc == 1) {
-        k_snprintf(line, sizeof(line), "phase=%s trusted=%d fb=%d sel=%u test=%s pending=%s\n",
+        /*
+         * request: a test the port asked for, not started yet. pending:
+         * input events not taken yet. The port answers from inside
+         * input_poll(), before it takes the next event, so pending=0
+         * means the image handled every key sent before this command.
+         */
+        k_snprintf(line, sizeof(line),
+                   "phase=%s trusted=%d fb=%d sel=%u test=%s request=%s pending=%u\n",
                    phase_name(dg.phase), dg.trusted, dg.fb_ok, menu.sel + 1,
                    dg.test >= 0 ? dg_test_name((unsigned)dg.test) : "none",
                    pending < 0 ? "none" :
-                   pending == DG_ITEM_ALL ? "all" : dg_test_name((unsigned)pending));
+                   pending == DG_ITEM_ALL ? "all" : dg_test_name((unsigned)pending),
+                   input_pending());
         reply->write(line);
         return 0;
     }

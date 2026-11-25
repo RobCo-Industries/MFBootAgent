@@ -9,7 +9,7 @@ import re
 import subprocess
 
 from diag import (TIMEOUT, X0, X1, alone, command, diag_image, dump, events, key,  # noqa: F401
-                  one, run)
+                  one, run, state)
 from harness.env import minimal_env
 
 # Outputs preset before the test, per chip: {pin: level}. The rest stay inputs.
@@ -57,6 +57,7 @@ def test_both_chips_read_only(board, diag_image):
         # A sensor contact on X0.3 closes, then opens: the view follows.
         vm.qmp.set_irq_in(path(0), 3, 0)
         vm.wait_for("ev=expander_in chip=0 bits=0xf2\n", timeout=TIMEOUT)
+        state(vm)
         _, rows = dump(vm)
         assert rows[21 + 3] == "X0.3  LOW           X1.3  HIGH", rows
         assert rows[21 + 1] == "X0.1  HIGH          X1.1  LOW", rows
@@ -88,6 +89,7 @@ def test_one_chip(board, diag_image):
     with alone(diag_image, board, devices=X0) as vm:
         command(vm, "diag expander")
         vm.wait_for("ESC leaves.", timeout=TIMEOUT)
+        state(vm)
         _, rows = dump(vm)
         assert rows[19] == "X0 at 0x20: IN 0xff  OUT 0xff  POL 0x00  CFG 0xff", rows
         assert rows[20] == "X1 at 0x21: absent", rows

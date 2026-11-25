@@ -34,6 +34,8 @@ How the stage starts:
 | `test_chain.py` | After chain1: the screen is adopted, the old text stays, the boot info keeps earlier fields and sets new ones. After chain1 with no framebuffer: the `init` path. With `RETROS_IMG`: BIOS, MFBootAgent and the test OS in order, and the BIOS text above the menu. |
 | `test_env_hygiene.py` | No test copies the host environment |
 | `test_maint.py` | The maintenance screen opened by `M`, BACK, the port and `boot_flags` bit 1 from `tests/chain1maint`. Each action, verify with good and bad entries and with the card ejected, the countdown not restarting, `maint` and `key select` in one write in both orders, bit 1 in the next stage's boot info, the input back ends, the screen and verify goldens. |
+| `test_port_replies.py` | `state()` and `batch()` against a fake port, no QEMU: a reply left unread by a raw write is reported |
+| `test_timing_skips.py` | The `host timing:` skip count against fake reports, no QEMU: the limit per board, the option and the failed session |
 
 The test OS in `tests/os/` is built three times, as subtypes 0, 2 and 3. It checks the registers and the boot info it receives against the spec for a third stage and prints one `check` marker per check.
 
@@ -63,7 +65,7 @@ make test-target RETROS_IMG=/path/to/retros.img
 
 ## The diagnostics image
 
-`tests/test_diag_*.py` start `build/diag.sys` alone, through a two-word image at `0x8000`, with the helpers in `tests/diag.py`. They drive it through the maintenance port and read its markers and screen.
+`tests/test_diag_*.py` start `build/diag.sys` alone, through a two-word image at `0x8000`, with the helpers in `tests/diag.py`. They drive it through the maintenance port and read its markers and screen. The image's port shares the agent's `state` and `dump` protocol, so the tests use `state()` and `batch()` from `tests/mfboot.py`. Its `state` line also ends with `pending=<n>`, and the tests read the screen only after `state()`.
 
 - `test_diag_menu.py`: the markers, the menu golden, keys, port commands and reboot.
 - `test_diag_mem.py`: the full range with every byte flushed from the D-cache before its check, a planted fault with the test build, and an abort by key.
@@ -72,8 +74,10 @@ make test-target RETROS_IMG=/path/to/retros.img
 - `test_diag_expander.py`: both expanders, one and none. The test presets outputs on the QEMU models, drives input lines with qtest, and checks that every pin the chips drive is the same at the end. It also checks that the image links no expander write function.
 - `test_diag_all.py`: `diag all` with every device, on a bare board, and an abort that skips the rest and leaves the `RUN ALL` row at SKIPPED.
 
-On a busy host, QEMU can stop the guest for longer than a tick period. The timer test then misses ticks and fails, as it must on a real board. The two `diag all` runs skip in that case and print the numbers, only when every other test gave its expected result and `window_missed` explains `us` within one period. Any other failure fails. `test_timer_starved_rule` checks the rule without QEMU, with numbers seen on raspi2b at a load average of 22.
-- `test_diag_chain.py`: the agent's menu, choose `DIAG`, the image trusts the boot info and reaches `ready`. Alone and after `examples/chain1`.
+On a busy host, QEMU can stop the guest for longer than a tick period. The timer test then misses ticks and fails, as it must on a real board. The two `diag all` runs and `test_timer_and_rng` skip in that case and print the numbers, only when the timer is the only failure, `missed` is above 0 and `window_missed` explains `us` within one period. Any other failure fails. `test_timer_and_rng` runs rng first, so a skip never hides it. `test_timer_starved_rule` checks the rule without QEMU, with numbers seen on raspi2b at a load average of 22.
+
+These skips have the reason prefix `host timing:`. `tests/timing_skips.py` counts them per session and fails the session when there are more than one per board in it. On a loaded local machine, `--timing-skips-max=<n>` or `make test-target TIMING_SKIPS_MAX=<n>` allows more. `make test-target` runs pytest with `-rs`, so every skip reason prints at the end. `test_timing_skips.py` checks the counting without QEMU.
+- `test_diag_chain.py`: the agent's menu, choose `DIAG`, the image trusts the boot info and reaches `ready`. Alone and after `examples/chain1`. With both features: the maintenance screen's Verify entries passes the real `DIAG.SYS`, then `DIAG` boots from the menu with `boot_flags` bit 1 set and shows its menu.
 
 QEMU models no cache. The memory test proves that the flush runs over every byte, not that it reaches RAM on a board. Nothing here is validated on hardware.
 

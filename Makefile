@@ -6,6 +6,7 @@
 #   make test BOARD=raspi0    the same, target tests on one board
 #   make test-host            host unit tests and the pin check
 #   make test-target          QEMU target tests (BOARD=all by default).
+#                             TIMING_SKIPS_MAX=<n> allows more host timing skips
 #                             RETROS_IMG=<RETROS.IMG> adds the whole-chain tests.
 #   make sdimage              build/sd.img: MFBOOT.SYS, BOOT.CFG and the test
 #                             operating images. FIRST=<RETROS.IMG> adds a first
@@ -139,8 +140,9 @@ test: test-host
 	$(MAKE) test-target
 
 test-target: all venv
-	$(VENV)/bin/pytest tests -v --board $(BOARD) --build-dir $(BUILD) \
-	    $(if $(RETROS_IMG),--retros-img $(abspath $(RETROS_IMG)))
+	$(VENV)/bin/pytest tests -v -rs --board $(BOARD) --build-dir $(BUILD) \
+	    $(if $(RETROS_IMG),--retros-img $(abspath $(RETROS_IMG))) \
+	    $(if $(TIMING_SKIPS_MAX),--timing-skips-max=$(TIMING_SKIPS_MAX))
 
 # DOC_ROOT: the tree whose Markdown links check-doc-links reads.
 DOC_ROOT ?= .

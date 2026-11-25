@@ -4,7 +4,7 @@ import re
 import time
 
 from diag import (MENU_ROWS, RTC, TIMEOUT, alone, command, diag_image, dump,  # noqa: F401
-                  events, key, run, state)
+                  events, key, run, skip_if_timer_alone_starved, state)
 from mfboot import screenshot
 
 WHITE, BLACK = (255, 255, 255), (0, 0, 0)
@@ -50,6 +50,7 @@ def test_video_patterns_step_by_key(board, diag_image, tmp_path):
         assert (m["width"], m["height"], m["depth"], m["pitch"]) == ("640", "480", "32", "2560")
         assert (m["patterns"], m["judge"]) == ("8", "person"), m
         # The menu comes back in full.
+        state(vm)
         _, rows = dump(vm)
         assert rows[:4] == MENU_ROWS[:4], rows
         assert rows[6].startswith("  3  VIDEO     Screen patterns              OK       640x480"), rows
@@ -86,14 +87,16 @@ def test_audio_through_trace(board, diag_image):
 
 def test_timer_and_rng(board, diag_image):
     with alone(diag_image, board) as vm:
-        m = run(vm, "timer")
-        assert m["result"] == "ok", vm.serial
-        assert (m["ticks"], m["hz"], m["limit"], m["missed"]) == ("100", "100", "10000", "0"), m
-        assert abs(int(m["ppm"])) <= 10000
+        # rng first: a timer skip on a busy host must not hide it.
         m = run(vm, "rng")
         assert m["result"] == "ok", vm.serial
         assert (m["words"], m["repeats"]) == ("1024", "0"), m
         assert abs(int(m["bits"]) - 16384) <= 512, m
+        m = run(vm, "timer")
+        skip_if_timer_alone_starved(vm, m)
+        assert m["result"] == "ok", vm.serial
+        assert (m["ticks"], m["hz"], m["limit"], m["missed"]) == ("100", "100", "10000", "0"), m
+        assert abs(int(m["ppm"])) <= 10000
 
 
 def test_rtc_present(board, diag_image):
@@ -110,6 +113,7 @@ def test_rtc_absent(board, diag_image):
     with alone(diag_image, board) as vm:
         m = run(vm, "rtc")
         assert (m["result"], m["addr"]) == ("absent", "0x68"), m
+        state(vm)
         _, rows = dump(vm)
         assert rows[11].endswith("ABSENT   No clock chip at 0x68."), rows
 
@@ -131,6 +135,7 @@ def test_input_live_view(board, diag_image):
         key(vm, "select", 1)
         vm.wait_for(re.compile(r"ev=input_event source=script type=key code=select value=1\n"),
                     timeout=TIMEOUT)
+        state(vm)
         _, rows = dump(vm)
         assert rows[22].startswith("select   PRESSED"), rows
         assert rows[29] == "script  key   select    press", rows

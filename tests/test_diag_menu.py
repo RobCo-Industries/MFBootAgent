@@ -23,6 +23,7 @@ def test_markers_and_golden(board, diag_image, tmp_path):
         inp = one(vm, "input")
         assert (inp["serial"], inp["mini"], inp["script"]) == ("0", "0", "0"), inp
         assert one(vm, "selfcheck")["rc"] == "ok"
+        state(vm)
         _, rows = dump(vm)
         assert rows[:len(MENU_ROWS)] == MENU_ROWS, rows
         assert all(r == "" for r in rows[len(MENU_ROWS):]), rows
@@ -58,6 +59,7 @@ def test_keys_move_and_start(board, diag_image):
         key(vm, "select")
         vm.wait_for(re.compile(r"(ev=diag name=rng [^\n]*\n[\s\S]*){2}"), timeout=TIMEOUT)
         assert len(results(vm, "rng")) == 2
+        state(vm)
         _, rows = dump(vm)
         assert rows[10].startswith("> 7  RNG       Random number generator      OK       "), rows
         assert rows[17].startswith("RNG: OK. 0 repeats, "), rows

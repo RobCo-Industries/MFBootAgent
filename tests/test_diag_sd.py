@@ -8,7 +8,7 @@ import pytest
 
 import mfboot
 from diag import (TIMEOUT, alone, command, diag_image, diag_test_image, dump, events,  # noqa: F401
-                  good_card, one, run)
+                  good_card, one, run, state)
 from harness.sdimage import PART_LBA, SECTOR, corrupt, make_sd_image
 
 
@@ -35,6 +35,7 @@ def test_good_card(board, diag_image, good_card):
         found = images(vm)
         assert set(found) == {mfboot.UOS, mfboot.MAINT, mfboot.DIAG}, found
         assert all(x["rc"] == "ok" for x in found.values()), found
+        state(vm)
         _, rows = dump(vm)
         assert any(r.startswith("DIAG.SYS") and " OK      DIAG subtype 3" in r for r in rows), rows
     assert digest(good_card) == before
@@ -82,6 +83,7 @@ def test_corrupted_image(board, diag_image, test_os, need_mtools, tmp_path):
             ("0", "2", "1", mfboot.UOS), m
         found = images(vm)
         assert found[mfboot.UOS]["rc"] == "crc" and found[mfboot.MAINT]["rc"] == "ok", found
+        state(vm)
         _, rows = dump(vm)
         assert any(r.startswith("UOS.SYS") and "FAILED  crc" in r for r in rows), rows
         assert rows[17] == "SD: FAILED. UOS.SYS: crc", rows
@@ -99,6 +101,7 @@ def test_short_diag_fails(board, diag_image, good_card_files, need_mtools, tmp_p
             ("3", "1", mfboot.DIAG, "short"), m
         found = images(vm)
         assert (found[mfboot.DIAG]["rc"], found[mfboot.DIAG]["size"]) == ("short", "16"), found
+        state(vm)
         _, rows = dump(vm)
         assert any(r.startswith("DIAG.SYS") and "FAILED  short" in r for r in rows), rows
         assert rows[17] == "SD: FAILED. DIAG.SYS: short", rows
@@ -125,6 +128,7 @@ def test_other_file_is_listed(board, diag_image, good_card_files, need_mtools, t
         assert m["result"] == "ok", vm.serial
         assert (m["files"], m["images"], m["bad_images"], m["others"]) == ("5", "3", "0", "2"), m
         assert "/ROBCO/NOTES.TXT" not in images(vm)
+        state(vm)
         _, rows = dump(vm)
         assert any(r.startswith("NOTES.TXT") and r.endswith("-       not an image")
                    for r in rows), rows
@@ -138,6 +142,7 @@ def test_no_robco_folder(board, diag_image, need_mtools, tmp_path):
         assert (m["result"], m["dir"], m["files"]) == ("fail", "missing", "0"), m
         # The block reads still ran and report.
         assert (m["errors"], m["read"]) == ("0", "30720"), m
+        state(vm)
         _, rows = dump(vm)
         assert rows[17] == "SD: FAILED. No /ROBCO folder", rows
 
@@ -179,6 +184,7 @@ def test_directory_read_error_fails(board, diag_image, good_card_files, need_mto
         m = run(vm, "sd")
         assert m["result"] == "fail", vm.serial
         assert m["dir_rc"] == "-17", m
+        state(vm)
         _, rows = dump(vm)
         assert rows[17] == "SD: FAILED. /ROBCO read error -17", rows
 
@@ -197,6 +203,7 @@ def test_no_card(board, diag_image):
     with alone(diag_image, board) as vm:
         m = run(vm, "sd")
         assert (m["result"], m["why"]) == ("absent", "init"), m
+        state(vm)
         _, rows = dump(vm)
         assert rows[5].endswith("ABSENT   No card."), rows
 
