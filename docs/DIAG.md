@@ -179,6 +179,7 @@ The stage name is `diag`. Each line starts with `@RC stage=diag`.
 | `expander` | `chip addr present`, then `in out pol cfg attached` or `rc` |
 | `expander_in` | `chip bits` |
 | `expander_err` | `chip`, at the first failed read of a chip in the live view. `chip at=attach rc` when the attach failed. |
+| `diag_drop` | `name why`. The port's `diag` was answered `ok` but did not run: `run` when a key started a run first, `reboot` when a reboot came first. |
 | `reboot` | `source`, `key` or `maint` |
 
 `result` is `ok`, `fail`, `absent` or `skipped`. A skipped test has `why`: `abort` or `interactive`.
@@ -202,12 +203,14 @@ The port is the mini UART: in QEMU, the second serial port. On hardware it reach
 | Command | Effect |
 |---|---|
 | `state` | One line: `phase trusted fb sel test request pending`. `request` is the test the port asked for that has not started. `pending` is the count of input events not taken yet. |
-| `diag <name>` | Starts one test. `diag all` runs all. `err busy` while a test runs. |
+| `diag <name>` | Starts one test. `diag all` runs all. `err busy` while a test runs, while a request waits or when the input queue is full. |
 | `dump` | The screen text |
 | `key`, `char`, `text` | The library's built-in input commands |
 | `reboot` | Restarts the board through the watchdog |
 
-`diag` only records the request. The main loop runs the test, so the port keeps answering.
+`diag` only queues the request. The main loop runs the test, so the port keeps answering.
+
+The request goes through the input queue behind the keys the port received before it, as the agent's `maint` does. The menu takes them in the order the port got them. `diag timer` then `key select` runs the timer test. The SELECT comes during the test, and the image drops it with the other keys. `key select` then `diag timer` runs the selected row. The image drops the request with `diag_drop why=run` when that run starts, so it never runs later. A reboot, from the `R` key or the port, drops a waiting request with `diag_drop why=reboot`. One rule holds everywhere: an action taken before the request comes up drops it with a marker.
 
 The port answers between input events, so a reply can come before the image handled the keys sent ahead of it. The tests read the screen only after a `state` reply with `pending=0`.
 
