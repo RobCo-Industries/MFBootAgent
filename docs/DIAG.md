@@ -64,7 +64,9 @@ The patterns, in order:
 
 Each pattern is written over the whole range, then read back. A fault gives the pattern, the first bad address, what was written and what was read.
 
-The MMU and caches are on. The memory guide of RobCo-Core maps all ARM RAM as cached write-back memory, so the test uses that map. The ranges are hundreds of MiB, far larger than the caches, so the reads come from RAM. QEMU models no cache, so the QEMU times say nothing about the speed on a board.
+The MMU and caches are on. The memory guide of RobCo-Core maps all ARM RAM as cached write-back memory, so the test uses that map. Before it reads a 1 MiB step back, the test cleans and invalidates that step in the D-cache with `cache_flush_range()`. The last lines of a fill can still be dirty in the cache, and without the flush the check would compare cached values that never reached RAM. The `flushed` key gives the bytes flushed per pattern and must equal `bytes`. The `cache` key is 1 when the MMU and caches are on.
+
+QEMU models no cache. The QEMU tests prove that the flush runs over every byte, not that it reaches RAM on a board. The QEMU times say nothing about the speed on a board.
 
 Run all tests only the first 16 MiB.
 
@@ -72,7 +74,9 @@ Run all tests only the first 16 MiB.
 
 ### sd
 
-The card is read through a copy of its block device flagged read-only. Its write function only counts the attempt, so the test can never write. The `writes` key reports the count, and a count above 0 fails the test.
+The card is read through a write guard in front of its block device. The guard's write function counts the attempt and refuses it with `BLK_ERR_RO`. It never calls the card's write function, so the test can never write. The `writes` key reports the count, and a count above 0 fails the test.
+
+The guard carries no read-only flag on purpose. `blk_write()` refuses a device flagged `BLK_FLAG_READONLY` before it calls the write function, so a flagged guard could never count an attempt. A host test sends writes through `blk_write()` and checks that the guard counts and refuses each one, and that the card sees none.
 
 1. The card identity: type, manufacturer, OEM, product name, serial and size.
 2. The blocks of the boot volume, in reads of 64 blocks. A volume of up to 65536 blocks, 32 MiB, is read whole. A larger one is read as 1024 reads spread from its first block to its last. So the test reads at most 32 MiB. A failed read is retried block by block to find the first bad block.
@@ -109,6 +113,8 @@ Alone, a key steps to the next pattern, and each pattern waits at most 30 s. In 
 
 Five tones of 150 ms, then a six-note tune, through `audio.h`. The `backend` key says what the library chose. QEMU does not model the PWM, so the library uses its trace backend. That backend prints one `audio` marker per call. It proves the calls, not a sound. Each sound has a bound of its length plus 500 ms.
 
+When `audio_init()` returns `AUDIO_ERR_NO_PWM` or `AUDIO_ERR_PIN`, the PWM failed and the trace backend took over. The test still plays through the trace, then fails with the `init` code, since no sound came out.
+
 ### input
 
 Each event shows on the screen and as an `input_event` marker, with its source, type, code and value. A row per GPIO button shows pressed or released. The view leaves on ESC twice within 1 s, BACK held for 1.5 s, or 20 s with no event. A single BACK stays, so the BACK button can be tried. Run all skips it: `why=interactive`.
@@ -133,11 +139,15 @@ STRICTLY READ-ONLY. Relays and door locks may hang on these pins. The test reads
 
 A chip is absent only when it does not acknowledge the first read. Any other failed read fails the test, as does a failed read in the live view.
 
+A chip whose polarity reads not 0 is never attached. The test reads its input port raw, and that path is not an error. A chip whose polarity reads 0 is attached. When a read inside `gpiox_attach()` fails, the test counts a bus error, prints an `expander_err` marker with `at=attach`, adds the `attach<n>=error rc<n>` keys and fails.
+
 Alone, a live view shows the input port of each chip, a row per line from `X0.0` to `X1.7`, so a person can press a sensor contact and see the bit move. Each change prints an `expander_in` marker. ESC leaves, as does one minute with no change and no key. Run all reports presence and the registers once.
 
 ## Run all
 
 Run all runs every test except `input`, then prints `diag_done` with the count of each result. ESC stops the current test with `why=abort`, and the tests after it are skipped with `why=abort` too. It takes about 10 s in QEMU with a 16 MiB card.
+
+The `RUN ALL` row gives FAILED when a test failed. Else it gives SKIPPED when ESC stopped the run, ABSENT when no test gave OK, and OK otherwise.
 
 ## Markers
 
@@ -164,22 +174,22 @@ The stage name is `diag`. Each line starts with `@RC stage=diag`.
 | `i2c` | `rc`, at the first I2C test |
 | `expander` | `chip addr present`, then `in out pol cfg attached` or `rc` |
 | `expander_in` | `chip bits` |
-| `expander_err` | `chip`, at the first failed read of a chip in the live view |
+| `expander_err` | `chip`, at the first failed read of a chip in the live view. `chip at=attach rc` when the attach failed. |
 | `reboot` | `source`, `key` or `maint` |
 
 `result` is `ok`, `fail`, `absent` or `skipped`. A skipped test has `why`: `abort` or `interactive`.
 
 | Test | Keys after `result` |
 |---|---|
-| `mem` | `ranges start end bytes patterns ms`. A fault: `pattern addr expected found bytes`. |
-| `sd` | `card mid oid pnm psn blocks vol_lba vol_blocks read sampled errors`, `first_bad` on an error, `ms kib_s files images bad_images others`, `bad_path bad_rc` for the first bad image, `dir_rc` on a directory error, `writes`. No `/ROBCO`: `files=0 dir=missing` in place of the file keys. No card: `why=init rc`. |
+| `mem` | `ranges start end bytes patterns ms flushed cache`. A fault: `pattern addr expected found bytes`. |
+| `sd` | `probe_rc` in the test build after `sdwrite`, `card mid oid pnm psn blocks vol_lba vol_blocks read sampled errors`, `first_bad` on an error, `ms kib_s files images bad_images others`, `bad_path bad_rc` for the first bad image, `dir_rc` on a directory error, `writes`. No `/ROBCO`: `files=0 dir=missing` in place of the file keys. No card: `why=init rc`. |
 | `video` | `width height depth pitch order patterns judge=person` |
 | `audio` | `backend probe init tones notes` |
 | `input` | `events why gpio`. `why` is `back2`, `long` or `idle`. |
 | `timer` | `ticks hz us ppm limit missed` |
 | `rng` | `words repeats bits` |
 | `rtc` | `addr chip halted time` |
-| `expander` | `x0 in0 out0 pol0 cfg0`, `x0=absent` or `x0=error rc0`, the same for chip 1, `view` after the live view, and `errors` when a read failed |
+| `expander` | `x0 in0 out0 pol0 cfg0`, `x0=absent` or `x0=error rc0`, the same for chip 1, `attach0=error rc0` when the attach failed, the same for chip 1, `view` after the live view, and `errors` when a read failed |
 
 ## Maintenance port
 
@@ -195,4 +205,4 @@ The port is the mini UART: in QEMU, the second serial port. On hardware it reach
 
 `diag` only records the request. The main loop runs the test, so the port keeps answering.
 
-The test build, `build/diagtest/diag.img`, adds `fault <addr>`. It flips one bit at that address after the memory test writes it. It also stops the memory test at 16 MiB. It is not shipped.
+The test build, `build/diagtest/diag.img`, adds `fault <addr>`. It flips one bit at that address after the memory test writes it. It also stops the memory test at 16 MiB. It also adds `sdwrite`: the next SD test sends one write through its guard and reports the result as `probe_rc`. The guard counts and refuses it, so the test fails with `writes=1` and the card does not change. It is not shipped.

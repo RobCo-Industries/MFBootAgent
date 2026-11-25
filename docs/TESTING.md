@@ -63,11 +63,13 @@ make test-target RETROS_IMG=/path/to/retros.img
 `tests/test_diag_*.py` start `build/diag.sys` alone, through a two-word image at `0x8000`, with the helpers in `tests/diag.py`. They drive it through the maintenance port and read its markers and screen.
 
 - `test_diag_menu.py`: the markers, the menu golden, keys, port commands and reboot.
-- `test_diag_mem.py`: the full range, a planted fault with the test build, and an abort by key.
-- `test_diag_sd.py`: a good card, a corrupted image, a `DIAG.SYS` cut to 16 bytes, a damaged magic, an extra text file, a card without `/ROBCO`, a `/ROBCO` whose cluster chain is broken, a 64 MiB card read as a sample, and no card. The card file is unchanged after the good card test.
+- `test_diag_mem.py`: the full range with every byte flushed from the D-cache before its check, a planted fault with the test build, and an abort by key.
+- `test_diag_sd.py`: a good card, a corrupted image, a `DIAG.SYS` cut to 16 bytes, a damaged magic, an extra text file, a card without `/ROBCO`, a `/ROBCO` whose cluster chain is broken, a 64 MiB card read as a sample, and no card. The card file is unchanged after the good card test. With the test build, `sdwrite` sends one write through the guard: the test counts it, refuses it and fails, and the card file is unchanged.
 - `test_diag_devices.py`: video patterns checked pixel by pixel, audio through the trace backend, the input live view and its three exits, timer, rng, and the clock chip present and absent.
 - `test_diag_expander.py`: both expanders, one and none. The test presets outputs on the QEMU models, drives input lines with qtest, and checks that every pin the chips drive is the same at the end. It also checks that the image links no expander write function.
-- `test_diag_all.py`: `diag all` with every device, on a bare board, and an abort that skips the rest.
+- `test_diag_all.py`: `diag all` with every device, on a bare board, and an abort that skips the rest and leaves the `RUN ALL` row at SKIPPED.
 - `test_diag_chain.py`: the agent's menu, choose `DIAG`, the image trusts the boot info and reaches `ready`. Alone and after `examples/chain1`.
+
+QEMU models no cache. The memory test proves that the flush runs over every byte, not that it reaches RAM on a board. Nothing here is validated on hardware.
 
 `test_diag_mem.py` allows a full pass `HOST_ALLOWANCE`, 20 s, above 10 s. The input idle test waits 20 s. Each test file takes under 35 s per board.

@@ -38,4 +38,4 @@ The image is 72160 bytes. With BSS and stacks it takes 130704 bytes (`mem_size` 
 
 ## The diagnostics image
 
-`diag/` builds `DIAG.SYS` with its own `Makefile` and `robco_config.h`. The pure files hold the decisions and have host tests: `dg_mem.c` the RAM ranges and patterns, `dg_sd.c` the read plan, `dg_menu.c` the menu and the live view exit rule, `dg_fmt.c` the lines, markers and verdicts. `main.c` holds the entry, the screen, the menu loop and the port. Each `t_*.c` file is a thin layer over the drivers for one or more tests. [DIAG.md](DIAG.md) describes the image.
+`diag/` builds `DIAG.SYS` with its own `Makefile` and `robco_config.h`. The pure files hold the decisions and have host tests: `dg_mem.c` the RAM ranges and patterns, `dg_sd.c` the read plan, the file rule and the write guard, `dg_menu.c` the menu and the live view exit rule, `dg_fmt.c` the lines, markers, verdicts, the run-all result and the expander attach rule. `main.c` holds the entry, the screen, the menu loop and the port. Each `t_*.c` file is a thin layer over the drivers for one or more tests. [DIAG.md](DIAG.md) describes the image.
