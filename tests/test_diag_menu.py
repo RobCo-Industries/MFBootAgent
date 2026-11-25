@@ -44,7 +44,8 @@ def test_keys_move_and_start(board, diag_image):
         key(vm, "down")
         vm.wait_for("ev=select index=3 name=video", timeout=TIMEOUT)
         key(vm, "up")
-        vm.wait_for("ev=select index=2 name=sd", timeout=TIMEOUT)
+        # The first DOWN printed this marker too: wait for the second one.
+        vm.wait_for(re.compile(r"(?:ev=select index=2 name=sd\r?\n[\s\S]*?){2}"), timeout=TIMEOUT)
         assert state(vm)["sel"] == "2"
         _, rows = dump(vm)
         assert rows[5] == "> 2  SD        Card reads, image checks", rows
