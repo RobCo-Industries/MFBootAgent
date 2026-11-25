@@ -57,7 +57,9 @@ Right after the mount, before `BOOT.CFG`, the menu and the countdown, the stage 
 
 The stage never loops. Closing the screen leaves the menu with no countdown, and no image boots without a key. A delete that keeps failing opens the screen again at each start.
 
-A request with `boot_flags` bit 1 received opens one screen, `why=request`. When the screen opens at start, for a request or a received bit 1, it drops the button events queued before it opened. Before that moment the stage has not polled input, so the queue holds only button events: the guard's press for a held button, its release and repeats, and buttons pressed while the card mounted. A held BACK does not close the screen and a held SELECT runs no action. The repeats and the release of a button still held when the screen opens do nothing too. The next press after the screen shows acts as usual. Keys from the console and the port reach the queue only once the screen polls input, so they always act.
+A request with `boot_flags` bit 1 received opens one screen, `why=request`. When the screen opens at start, for a request or a received bit 1, it drops the button events queued before it opened. Before that moment the stage has not polled input, so the queue holds only button events: the guard's press for a held button, its release and repeats, and buttons pressed while the card mounted. A held BACK does not close the screen and a held SELECT runs no action. The repeats and the release of a button still held when the screen opens do nothing too. The next press after the screen shows acts as usual. Keys from the console and the port reach the queue only once the screen polls input, so they always act. `src/startkeys.c` holds this rule. `MAINT.SYS` applies it to its own menu, since a button still held when the screen starts it comes again as a press from the image's guard.
+
+From the screen, Start the maintenance image boots `MAINT.SYS` with bits 1 and 3 set. The image shows them on its status row. Its restart tool resets the board. The request file is gone by then, so that next boot is a normal one. [MAINT.md](MAINT.md#starting-it) tells the image's side.
 
 ### 3. BOOT.CFG
 

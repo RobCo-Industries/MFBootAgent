@@ -76,7 +76,7 @@ When you boot an entry, the stage shows `Loading <name> from <path>`. It checks 
 
 ## The maintenance image
 
-The `MAINT` entry starts `MAINT.SYS`, the maintenance image. It needs no login: being at the terminal is the authority. It has six tools: check card, check images, view file, set clock, restore users and restart. Restore users puts back the default user file when every password is lost. It is off unless `BOOT.CFG` has `restore_users = on` in a `[maint]` section. [MAINT.md](MAINT.md) describes each tool.
+The `MAINT` entry starts `MAINT.SYS`, the maintenance image. It needs no login: being at the terminal is the authority. It has six tools: check card, check images, view file, set clock, restore users and restart. Restore users puts back the default user file when every password is lost. It is off unless `BOOT.CFG` has `restore_users = on` in a `[maint]` section. The maintenance screen starts it too, also after a [maintenance request](#maintenance-request). [MAINT.md](MAINT.md) describes each tool.
 
 ## Error lines
 
@@ -179,6 +179,8 @@ The file as the stage read it at start, and how it was used: `in use`, `missing`
 
 Starts the maintenance image, as if you chose it in the menu. It uses the path of the `MAINT` entry when `BOOT.CFG` has one. Without one, and with the default menu of a missing or broken `BOOT.CFG`, it uses `/ROBCO/MAINT.SYS`. So a damaged `BOOT.CFG` never locks you out of it. When the file is missing or bad, the usual [error line](#error-lines) shows under the menu.
 
+The maintenance image's status row starts with `Started by a request.` when a request file asked for maintenance, and with `Maintenance asked.` otherwise. A button you held at power-on does nothing in it either. Release it and press again.
+
 ### Reboot
 
 Restarts the board through the watchdog.
@@ -200,7 +202,7 @@ The maintenance image always gets bit 1. The diagnostics image ignores both bits
 
 UOS can ask for maintenance at the next start, for its command `SET HALT RESTART /MAINTENANCE`. It writes the file `/ROBCO/MAINT.REQ` on the card and restarts. You can also put an empty file of that name on the card from a computer.
 
-At the next start this stage finds the file, reads it and deletes it. Then the menu shows with no countdown and the maintenance screen opens. Under the keys line it shows `MAINTENANCE REQUESTED` and the note in the file, such as who asked. A note is one line of up to 63 printable characters. A longer note, or one with other bytes, does not show, and the request still counts. No image starts until you pick one. The request works once: the next start is normal.
+At the next start this stage finds the file, reads it and deletes it. Then the menu shows with no countdown and the maintenance screen opens. Under the keys line it shows `MAINTENANCE REQUESTED` and the note in the file, such as who asked. A note is one line of up to 63 printable characters. A longer note, or one with other bytes, does not show, and the request still counts. No image starts until you pick one. The request works once: the next start is normal. So after you restart from the maintenance image, the boot menu shows as usual.
 
 When the file cannot be deleted, for a locked card, a locked file or a card error, the screen adds a notice:
 

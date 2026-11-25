@@ -23,9 +23,11 @@ So the one tool that changes accounts, restore users, is off unless `BOOT.CFG` t
 
 ## Starting it
 
-From the boot menu, choose the `MAINT` entry. The agent's maintenance screen can start it too. Alone, a two-word image at `0x8000` jumps to `0x00400000`. `make run-maint` does this in QEMU with the card.
+From the boot menu, choose the `MAINT` entry. The agent's maintenance screen can start it too, with Start the maintenance image: it uses the `MAINT` entry's path, or `/ROBCO/MAINT.SYS` when `BOOT.CFG` has no `MAINT` entry or does not read. The agent sets `boot_flags` bit 1 for every start of this image, and bit 3 when it found a [maintenance request](BOOT.md#maintenance-request) this boot. Alone, a two-word image at `0x8000` jumps to `0x00400000`. `make run-maint` does this in QEMU with the card.
 
-The image applies the trust rule. With a trusted boot info it adopts the agent's screen and clears it, as `DIAG.SYS` does. Alone, or with a block it does not trust, it starts its own 640 by 480 screen. The `handoff` marker adds `flags`, the received `boot_flags`, when the block is trusted. The image does not act on the flags.
+The image applies the trust rule. With a trusted boot info it adopts the agent's screen and clears it, as `DIAG.SYS` does. Alone, or with a block it does not trust, it starts its own 640 by 480 screen. The `handoff` marker adds `flags`, the received `boot_flags`, when the block is trusted.
+
+The spec gives the image nothing to do with bits 1 and 3. It shows them as plain facts at the start of the status row, from a trusted block only: `Started by a request.` for bit 3, `Maintenance asked.` for bit 1 alone. The row then reads `Choose a tool.`, or the `[maint]` notice. It acts on neither bit.
 
 Then it starts the SD card, mounts the boot volume behind the write guard, reads `[maint]` from `BOOT.CFG` and shows its menu.
 
@@ -50,7 +52,9 @@ flowchart TD
 | `1` to `6` | Start that tool |
 | ESC, BACK or Ctrl-C | Stop or cancel a tool |
 
-Keys come from the serial console, the maintenance port and the six buttons: UP 5, DOWN 6, LEFT 17, RIGHT 22, SELECT 26, BACK 27, the pins of BOARD_SUPPORT.md in RobCo-Core. The image reads no dial. The buttons do not repeat. Before the menu, the image waits up to 1 s for the GPIO backend's stuck-line guard, as the agent does. The `input` marker gives the backend state in `buttons`.
+Keys come from the serial console, the maintenance port and the six buttons: UP 5, DOWN 6, LEFT 17, RIGHT 22, SELECT 26, BACK 27, the pins of BOARD_SUPPORT.md in RobCo-Core. The image reads no dial. The buttons do not repeat. Before the menu, the image waits up to 1 s for the GPIO backend's stuck-line guard, as the agent does. The `input` marker gives the backend state in `buttons`, and in `pending` the events the guard queued.
+
+A button held at power-on stays held through the agent and into this image. The image's own guard then queues it as a press before the menu shows. The menu drops the button events queued before it showed, and the repeats and the release of a button held since then, with the agent's start screen rule in `src/startkeys.c`. A held SELECT runs no tool, and a held DOWN cannot walk the bar to restart or restore users. The next press after the release acts. Console and port keys always act.
 
 Each menu row shows the last result of its tool and a short detail. The status row under the help line shows the last result in full. A tool writes its lines in the work area under the menu, rows 14 to 29.
 
@@ -204,6 +208,22 @@ Every case before the write leaves `SYSUAF.DAT` untouched: the guard refuses eve
 
 The tool prints its `tool` marker, unmounts the volume so nothing waits in a buffer, prints `reboot source=tool` and resets the board with `power_reboot()`, through the PM watchdog. It asks nothing: it writes nothing.
 
+The agent deleted the request file before it showed its screen, so the next boot after a restart is a normal one: `maint_req result=none` and the menu as usual.
+
+```mermaid
+sequenceDiagram
+    participant C as SD card
+    participant A as MFBootAgent
+    participant M as MAINT.SYS
+    A->>C: Read and delete /ROBCO/MAINT.REQ
+    A->>A: maint_open why=request
+    A->>M: Start, boot_flags bits 1 and 3
+    M->>M: handoff flags, status row "Started by a request."
+    M->>A: Restart through the watchdog
+    A->>C: No MAINT.REQ: maint_req result=none
+    A->>A: The normal menu
+```
+
 ## The setting
 
 `[maint]` of `/ROBCO/BOOT.CFG`, by the key table of BOOT_PROTOCOL.md:
@@ -312,6 +332,7 @@ The test build, `build/mainttest/maint.img`, adds `wprobe`. The next read-only t
 - `diag/dg_fmt.c`: the progress rate, `dg_u64()`, the 64-bit number formatter, `dg_mval()`, the marker value encoder, and `dg_keys_add()`, `dg_keys_text()` and `dg_mark_fit()`, the marker length rule.
 - `dg_sd_image_keys()`, `dg_sd_bad_keys()`, `dg_sd_path()` and `dg_sd_row()` in `diag/dg_sd.c`: the image marker keys and screen row of both images.
 - `src/portreq.c`: the port request rule.
+- `src/startkeys.c`: the start key rule of the agent's start screen, for the image's menu.
 
 The screen rows, the screen set-up, the input set-up and the port commands are copied from `diag/main.c`. Sharing them would mean reshaping `DIAG.SYS`'s state.
 
