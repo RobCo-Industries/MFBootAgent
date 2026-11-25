@@ -109,12 +109,18 @@ static const char *phase_name(int phase)
 
 void mfb_state_line(char *buf, unsigned size)
 {
+    /*
+     * pending: input events not taken yet. The port answers from inside
+     * input_poll(), before it takes the next event, so a reply with
+     * pending=0 means the stage handled every key sent before it.
+     */
     k_snprintf(buf, size, "phase=%s trusted=%d entries=%u sel=%u counting=%d left=%u error=%s "
-               "maint=%d",
+               "maint=%d pending=%u",
                phase_name(mfb.phase), mfb.inherited, mfb.menu_ready ? mfb_cfg.count : 0,
                mfb.menu_ready ? menu.sel + 1 : 0, mfb.menu_ready ? menu.counting : 0,
                mfb.menu_ready ? mfb_menu_left(&menu, timer_now_ms()) : 0,
-               mfb.error != 0 ? mfb_err_name(mfb.error) : "none", mfb.maint_open);
+               mfb.error != 0 ? mfb_err_name(mfb.error) : "none", mfb.maint_open,
+               input_pending());
 }
 
 /*

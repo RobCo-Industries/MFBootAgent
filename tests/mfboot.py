@@ -5,6 +5,7 @@ import os
 import re
 import struct
 import tempfile
+import time
 import zlib
 
 from PIL import Image
@@ -144,9 +145,20 @@ def dump(vm):
 
 
 def state(vm):
-    reply = vm.script("state", timeout=TIMEOUT)
-    assert reply.status == "ok" and len(reply.lines) == 1, reply
-    return dict(field.split("=", 1) for field in reply.lines[0].split())
+    """The state line, once the stage has taken every queued input event.
+
+    The port answers between input events, so a reply can come while
+    keys sent before it still wait in the queue. Asks again until
+    pending=0: then the stage handled and drew every earlier key.
+    """
+    deadline = time.monotonic() + TIMEOUT
+    while True:
+        reply = vm.script("state", timeout=TIMEOUT)
+        assert reply.status == "ok" and len(reply.lines) == 1, reply
+        st = dict(field.split("=", 1) for field in reply.lines[0].split())
+        if st["pending"] == "0":
+            return st
+        assert time.monotonic() < deadline, reply
 
 
 def key(vm, name):
