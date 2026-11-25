@@ -218,7 +218,6 @@ static void entry(void)
              (unsigned)b->mem_size, mode_name(robco_boot_args()->entry_mode));
     mfb.inherited = bootinfo_inherited();
     mfb.flags_in = mfb.inherited ? bootinfo_get()->boot_flags : 0;
-    mfb.maint_req = -1;
     MFB_MARK("handoff trusted=%d", mfb.inherited);
     if (!mfb.inherited) {
         /* Cold: copy the firmware blob as a first stage does. bootinfo_build() records it. */
@@ -557,14 +556,17 @@ void mfb_reboot(const char *source)
  */
 static void maint_screen(int why)
 {
-    mfb.maint_req = -1;
+    if (mfb.maint_req != 0) {
+        /* A key opened it before the port's request came up: the screen it asked for shows. */
+        mfb.maint_req = 0;
+        MFB_MARK("maint_drop why=open");
+    }
     mfb.maint_open = 1;
     if (why != MFB_WHY_FLAG) {
         mfb.user_maint = 1;
     }
     mfb_maint_run(why);
     mfb.maint_open = 0;
-    mfb.maint_req = -1;
     place_menu();
     draw_menu();
     if (mfb.fb_ok) {
@@ -583,15 +585,18 @@ static int menu_loop(void)
         redraw();
         if (act == MFB_ACT_NONE &&
             input_wait(&ev, mfb_menu_wait_ms(&menu, timer_now_ms())) != 0) {
-            act = mfb_menu_event(&menu, &ev);
+            int port = mfb_port_maint(&ev, mfb.maint_req);
+
+            if (port == MFB_PORT_OPEN) {
+                /* The maint command on the port: it stops the countdown as a key does. */
+                mfb.maint_req = 0;
+                menu.why = MFB_WHY_PORT;
+                mfb_menu_stop(&menu);
+                act = MFB_ACT_MAINT;
+            } else if (port == MFB_PORT_NONE) {
+                act = mfb_menu_event(&menu, &ev);
+            }
             redraw();
-        }
-        if (act == MFB_ACT_NONE && mfb.maint_req >= 0) {
-            /* The maint command on the port: it stops the countdown as a key does. */
-            menu.why = mfb.maint_req;
-            mfb_menu_stop(&menu);
-            redraw();
-            act = MFB_ACT_MAINT;
         }
         if (act == MFB_ACT_MAINT) {
             maint_screen(menu.why);
@@ -600,6 +605,11 @@ static int menu_loop(void)
             mfb_reboot("key");
         }
         if (act == MFB_ACT_BOOT) {
+            if (mfb.maint_req != 0) {
+                /* An earlier key or the countdown chose the boot: the request behind it goes. */
+                mfb.maint_req = 0;
+                MFB_MARK("maint_drop why=boot");
+            }
             return act;
         }
     }

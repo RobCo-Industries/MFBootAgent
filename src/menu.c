@@ -151,3 +151,12 @@ unsigned mfb_menu_take(mfb_menu_t *m, unsigned *old_sel)
     }
     return d;
 }
+
+int mfb_port_maint(const input_event_t *ev, int32_t live)
+{
+    if (ev->type != INPUT_EV_CHAR || ev->source != INPUT_SRC_SCRIPT || ev->code != 0 ||
+        ev->value <= 0) {
+        return MFB_PORT_NONE;
+    }
+    return live != 0 && ev->value == live ? MFB_PORT_OPEN : MFB_PORT_STALE;
+}

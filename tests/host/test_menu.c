@@ -308,3 +308,39 @@ TEST(single_entry)
     mfb_menu_init(&m, 0, 0, -1, 0);
     CHECK_EQ(m.count, 1);
 }
+
+static input_event_t port_req(int32_t seq)
+{
+    input_event_t ev = chr(0);
+
+    ev.source = INPUT_SRC_SCRIPT;
+    ev.value = seq;
+    return ev;
+}
+
+TEST(port_maint_in_queue_order)
+{
+    input_event_t ev = port_req(3);
+
+    /* The live request opens the screen; an older or dropped one does nothing. */
+    CHECK_EQ(mfb_port_maint(&ev, 3), MFB_PORT_OPEN);
+    CHECK_EQ(mfb_port_maint(&ev, 4), MFB_PORT_STALE);
+    CHECK_EQ(mfb_port_maint(&ev, 0), MFB_PORT_STALE);
+    /* Keys are no request, NUL from another source or with value 0 neither. */
+    ev = chr('m');
+    ev.source = INPUT_SRC_SCRIPT;
+    CHECK_EQ(mfb_port_maint(&ev, 3), MFB_PORT_NONE);
+    ev = port_req(0);
+    CHECK_EQ(mfb_port_maint(&ev, 3), MFB_PORT_NONE);
+    ev = port_req(3);
+    ev.source = INPUT_SRC_SERIAL;
+    CHECK_EQ(mfb_port_maint(&ev, 3), MFB_PORT_NONE);
+    ev = key(INPUT_KEY_SELECT, INPUT_PRESS);
+    ev.source = INPUT_SRC_SCRIPT;
+    CHECK_EQ(mfb_port_maint(&ev, 3), MFB_PORT_NONE);
+    /* Not a key for the menu either. */
+    ev = port_req(3);
+    mfb_menu_init(&m, 2, 0, 5, 0);
+    CHECK_EQ(mfb_menu_event(&m, &ev), MFB_ACT_NONE);
+    CHECK_EQ(m.counting, 1);
+}

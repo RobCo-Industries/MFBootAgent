@@ -61,7 +61,7 @@ static int command(int argc, char *argv[], input_script_reply_t *reply, void *ct
     if (k_strcmp(argv[0], "maint") == 0 && argc == 1) {
         input_event_t wake = { 0 };
 
-        if (mfb.maint_open || mfb.maint_req >= 0) {
+        if (mfb.maint_open || mfb.maint_req != 0) {
             reply->reason = "already open";
             return -1;
         }
@@ -69,11 +69,18 @@ static int command(int argc, char *argv[], input_script_reply_t *reply, void *ct
             reply->reason = "not in the menu";
             return -1;
         }
-        mfb.maint_req = MFB_WHY_PORT;
-        /* A NUL character wakes the menu's input wait. It is no key. */
+        /*
+         * The request goes through the input queue, behind the keys sent
+         * before it: the menu takes them first. See mfb_port_maint().
+         */
         wake.type = INPUT_EV_CHAR;
         wake.source = INPUT_SRC_SCRIPT;
-        (void)input_push(&wake);
+        wake.value = ++mfb.maint_seq;
+        if (input_push(&wake) != 0) {
+            reply->reason = "busy";
+            return -1;
+        }
+        mfb.maint_req = wake.value;
         return 0;
     }
     reply->reason = "unknown command";

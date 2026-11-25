@@ -42,7 +42,8 @@ typedef struct {
     int screen;         /* MFB_MS_SCREEN_*: the screen path taken */
     uint32_t flags_in;  /* boot_flags received, 0 when not trusted */
     int maint_open;     /* the maintenance screen shows */
-    int maint_req;      /* MFB_WHY_* the port asked for, or -1 */
+    int32_t maint_req;  /* the port's request waiting in the queue, or 0 */
+    int32_t maint_seq;  /* the last request number given */
     int user_maint;     /* the user opened the maintenance screen during this boot */
 } mfb_state_t;
 

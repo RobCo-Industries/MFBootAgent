@@ -22,6 +22,11 @@
 #define MFB_ACT_REBOOT  2   /* restart the board */
 #define MFB_ACT_MAINT   3   /* open the maintenance screen: why holds MFB_WHY_* */
 
+/* What an event means for the port's maint request: mfb_port_maint(). */
+#define MFB_PORT_NONE   0   /* not a port request: a key for the menu */
+#define MFB_PORT_OPEN   1   /* the live request: open the maintenance screen */
+#define MFB_PORT_STALE  2   /* a request dropped earlier: take no action */
+
 /* Dirty bits: the lines to redraw. */
 #define MFB_DIRTY_SEL     (1u << 0)   /* the old and the new selected entry */
 #define MFB_DIRTY_STATUS  (1u << 1)   /* the countdown line */
@@ -84,5 +89,15 @@ void mfb_menu_stop(mfb_menu_t *m);
  * as drawn.
  */
 unsigned mfb_menu_take(mfb_menu_t *m, unsigned *old_sel);
+
+/*
+ * The port's maint command queues a NUL character from the script source
+ * with value `seq`, its request number, 1 or more. No key has that form:
+ * the `char` command refuses NUL and pushes value 0. `live` is the
+ * number of the request still waiting, or 0 when none waits. So the
+ * screen opens in queue order, and a request dropped earlier never
+ * opens it.
+ */
+int mfb_port_maint(const input_event_t *ev, int32_t live);
 
 #endif
