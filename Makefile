@@ -34,6 +34,7 @@ PURE_SRCS  := \
               src/boot.c \
               src/bootcfg.c \
               src/keymap.c \
+              src/maintreq.c \
               src/maintscr.c \
               src/menu.c \
               src/menulines.c \
@@ -79,6 +80,10 @@ HOST_INCLUDES := src diag maint
 MFB_CORE_PIN := $(or $(shell sed -n 's/.*robco-ci\.yml@\([0-9a-f]\{12\}\).*/\1/p' .github/workflows/ci.yml 2>/dev/null | head -n 1),unknown)
 EXTRA_CFLAGS += -DMFB_CORE_PIN='"$(MFB_CORE_PIN)"'
 
+# MFB_TEST=1 builds the test hook of main.c: build/mfbtest/mfboot.img. Not shipped.
+MFB_TEST ?= 0
+EXTRA_CFLAGS += -DMFB_TEST=$(MFB_TEST)
+
 ifeq ($(wildcard $(ROBCO_CORE)/mk/robco.mk),)
 $(error $(ROBCO_CORE) is empty: run git submodule update --init)
 endif
@@ -107,6 +112,19 @@ testos:
 
 $(OS_BUILD)/%/testos.img: testos
 	@test -f $@
+
+# ---- The agent's test build ----------------------------------------------
+
+# build/mfbtest/mfboot.img: the agent with MFB_TEST=1, its start screen
+# hold for the target tests. Not shipped.
+ifeq ($(MFB_TEST),0)
+.PHONY: mfbtest
+all: mfbtest
+
+mfbtest: $(BUILD)/$(IMAGE).img
+	$(MAKE) --no-print-directory BUILD=$(abspath $(BUILD))/mfbtest MFB_TEST=1 \
+	    $(abspath $(BUILD))/mfbtest/$(IMAGE).img
+endif
 
 # ---- The diagnostics image ------------------------------------------------
 

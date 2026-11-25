@@ -58,6 +58,7 @@ const char *mfb_why_name(int why)
     case MFB_WHY_BUTTON: return "button";
     case MFB_WHY_PORT:   return "port";
     case MFB_WHY_FLAG:   return "flag";
+    case MFB_WHY_REQUEST: return "request";
     default:             return "unknown";
     }
 }

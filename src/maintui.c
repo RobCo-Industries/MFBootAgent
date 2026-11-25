@@ -16,6 +16,7 @@
 
 #include "boot.h"
 #include "keymap.h"
+#include "maintreq.h"
 #include "maintscr.h"
 #include "menulines.h"
 #include "mfb.h"
@@ -69,7 +70,6 @@ static void draw_all(void)
     uart_putc('\n');
     mfb_ms_title(line, sizeof(line), MFB_VERSION_STR);
     row(MFB_MS_ROW_TITLE, line, CONSOLE_ATTR_BRIGHT, 1);
-    row(MFB_MS_ROW_RULE, mfb_line_rule(), CONSOLE_ATTR_DIM, 1);
     for (i = 0; i < MFB_MS_ITEMS; i++) {
         draw_item(i, 1);
     }
@@ -133,7 +133,8 @@ static void verify(void)
     MFB_MARK("verify_done result=ok entries=%u good=%u failed=%u", mfb_cfg.count, good, failed);
 }
 
-static void run(unsigned item)
+/* Runs one action. Returns 1 for the action that starts the maintenance image. */
+static int run(unsigned item)
 {
     static mfb_ms_page_t page;
     mfb_ms_sys_t sys;
@@ -152,29 +153,54 @@ static void run(unsigned item)
         mfb_cfg_info(&c);
         show_page(page, mfb_ms_config(page, &c));
         break;
+    case MFB_MS_START:
+        return 1;
     case MFB_MS_REBOOT:
         mfb_reboot("screen");
     default:
         break;
     }
+    return 0;
 }
 
-void mfb_maint_run(int why)
+int mfb_maint_run(int why, int at_start)
 {
+    mfb_start_keys_t keys;
+    static mfb_ms_page_t page;
     input_event_t ev;
     unsigned item = 0;
     unsigned old = 0;
+    int start = 0;
     int act;
 
     mfb_ms_init(&ms);
     top = mfb_place(MFB_MS_ROWS);
     draw_all();
+    if (why == MFB_WHY_REQUEST) {
+        /* The request line, if any, and the notice of a failed delete. */
+        show_page(page, mfb_ms_request(page, mfb.req, mfb.req_rc, mfb.req_line));
+    }
     park_cursor();
     MFB_MARK("maint_open why=%s", mfb_why_name(why));
+    if (at_start) {
+        /* The screen shows now: what the queue holds was sent before anyone saw it. */
+        uint32_t held = 0;
+        unsigned code;
+
+        for (code = 1; code < INPUT_KEY_COUNT; code++) {
+            if (input_key_down(code)) {
+                held |= (uint32_t)1 << code;
+            }
+        }
+        mfb_start_keys_init(&keys, input_pending(), held);
+    }
     for (;;) {
         int key;
 
         if (input_wait(&ev, 1000) == 0) {
+            continue;
+        }
+        if (at_start && !mfb_start_keys_take(&keys, &ev)) {
             continue;
         }
         key = mfb_key_map(&ev);
@@ -184,9 +210,12 @@ void mfb_maint_run(int why)
             draw_item(ms.sel, 1);
         }
         if (act == MFB_MS_ACT_RUN) {
-            run(item);
+            start = run(item);
         }
         park_cursor();
+        if (start) {
+            break;
+        }
         if (act == MFB_MS_ACT_CLOSE) {
             /* The Back action, as against ESC, Q or BACK. */
             if (key == MFB_K_SELECT) {
@@ -196,4 +225,5 @@ void mfb_maint_run(int why)
         }
     }
     MFB_MARK("maint_close");
+    return start;
 }

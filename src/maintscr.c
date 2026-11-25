@@ -5,17 +5,19 @@
 #include <robco/klibc.h>
 
 #include "keymap.h"
+#include "maintreq.h"
 
 static const char *const items[MFB_MS_ITEMS] = {
     "Verify entries",
     "System",
     "Configuration",
+    "Start the maintenance image",
     "Reboot",
     "Back to the boot menu",
 };
 
 static const char *const names[MFB_MS_ITEMS] = {
-    "verify", "system", "config", "reboot", "back",
+    "verify", "system", "config", "start", "reboot", "back",
 };
 
 void mfb_ms_init(mfb_ms_t *s)
@@ -53,6 +55,7 @@ int mfb_ms_key(mfb_ms_t *s, int key, unsigned *item)
         *item = s->sel;
         return MFB_MS_ACT_RUN;
     case MFB_K_BACK:
+        return MFB_MS_ACT_CLOSE;
     case MFB_K_QUIT:
         return MFB_MS_ACT_CLOSE;
     default:
@@ -219,5 +222,20 @@ unsigned mfb_ms_config(mfb_ms_page_t page, const mfb_ms_cfg_t *c)
     n = add(page, n, "Duplicate:    %u", c->dup);
     n = add(page, n, "Bad:          %u", c->bad);
     n = add(page, n, "Clamped:      %u", c->clamped);
+    return n;
+}
+
+unsigned mfb_ms_request(mfb_ms_page_t page, int result, int rc, const char *line)
+{
+    unsigned n = 0;
+
+    n = add(page, n, "MAINTENANCE REQUESTED");
+    if (line != NULL && line[0] != '\0') {
+        n = add(page, n, "Request:      %s", line);
+    }
+    if (result == MFB_REQ_CLEAR_FAILED) {
+        n = add(page, n, "NOTICE: %s could not be deleted, code %d.", MFB_REQ_PATH, rc);
+        n = add(page, n, "The request comes back at each start until the file is removed.");
+    }
     return n;
 }
