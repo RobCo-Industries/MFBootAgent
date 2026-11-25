@@ -64,6 +64,8 @@ At start the stage samples the pins for 100 ms. If every button reads pressed, i
 
 The buttons are untested. QEMU cannot press them, so the tests cover only the key mapping and the start-up check. No board with buttons has run this code.
 
+The diagnostics image reads the same six pins, plus a dial. See [DIAG.md](DIAG.md).
+
 ### The countdown
 
 With `timeout` set in `BOOT.CFG`, the status row counts down: `Booting UOS in 3 s. Press any key to stop.` At zero the default entry boots. Any key or button stops the countdown, and the row changes to `Countdown stopped. Press ENTER to boot.` The countdown never starts again during this boot, also not after the maintenance screen or a failed load. Without `timeout` the menu waits for a key. With `timeout = 0` the default boots at once.
@@ -136,7 +138,7 @@ The stage mounts the card again, then runs every check of a boot on each entry, 
 3 entries checked: 1 good, 2 failed.
 ```
 
-`RESULT` is `OK` or the code a failed boot would show. The [error table](#error-lines) says what each code means. `E06 BOUNDS` covers both of its reasons. Boot the entry to see the full line.
+A good `DIAG.SYS`, the diagnostics image, shows `OK` like the other operating images. `RESULT` is `OK` or the code a failed boot would show. The [error table](#error-lines) says what each code means. `E06 BOUNDS` covers both of its reasons. Boot the entry to see the full line.
 
 Each check loads the image into the OS slot. Nothing runs there yet, so this is safe. A later boot loads the image again.
 
@@ -178,7 +180,7 @@ Same as ESC.
 
 ### What the next stage learns
 
-The stage passes boot flags to the next stage. Bit 1 means the user asked for maintenance mode. The stage sets it when you opened the maintenance screen during this boot. It keeps it when the previous stage passed it on. Otherwise it is clear.
+The stage passes boot flags to the next stage. Bit 1 means the user asked for maintenance mode. The stage sets it when you opened the maintenance screen during this boot. It keeps it when the previous stage passed it on. Otherwise it is clear. The diagnostics image ignores the bit.
 
 ## BOOT.CFG
 

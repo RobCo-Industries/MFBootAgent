@@ -12,11 +12,15 @@ Every number on this page comes from QEMU. Nothing has been tried on real hardwa
 | Magic, subtype, ABI | `BOOT`, 3, 2.0 |
 | Link address | `0x00400000`, the OS slot |
 | Header name, version | `DIAG`, 0.1.0 |
-| Size | 101896 bytes. With BSS and stacks, `mem_size` is `0x37770`. |
+| Size | 103112 bytes. With BSS and stacks, `mem_size` is `0x37770`. These numbers come from one build and change with the toolchain. |
 
 ## Starting it
 
 From the boot menu, choose the `DIAG` entry. The default `BOOT.CFG` has it. The image trusts the boot info, adopts the screen of the agent, then clears it.
+
+The agent boots subtype 3 from its menu. Its maintenance screen's Verify entries runs the same checks on `DIAG.SYS` and shows `OK` for a good image. `test_diag_chain.py` runs both on one card.
+
+When the user opened the agent's maintenance screen, the agent sets `boot_flags` bit 1. In BOOT_PROTOCOL.md the bit means the user asked for maintenance mode. The spec gives a diagnostics image no rule for it, so the image ignores the bit. Its menu is the same with the bit set or clear.
 
 Alone, a two-word image at `0x8000` jumps to `0x00400000`. `make run-diag` does this in QEMU with the card. `DEVICES=1` adds the clock chip and both expanders. Alone, the image starts a fresh 640 by 480 screen.
 
@@ -33,7 +37,7 @@ The colour scheme comes from the boot info, else green.
 | `R` | Reboot through the watchdog |
 | ESC or BACK | Stop a test |
 
-Keys come from the serial console, the maintenance port and the GPIO buttons. The buttons use the pins of BOARD_SUPPORT.md in RobCo-Core: UP 5, DOWN 6, LEFT 17, RIGHT 22, SELECT 26, BACK 27, a dial on 23 and 24 with its push on 16. The GPIO backend turns itself off when every button reads pressed for its whole guard time.
+Keys come from the serial console, the maintenance port and the GPIO buttons. The buttons use the pins of BOARD_SUPPORT.md in RobCo-Core: UP 5, DOWN 6, LEFT 17, RIGHT 22, SELECT 26, BACK 27, a dial on 23 and 24 with its push on 16. The GPIO backend turns itself off when every button reads pressed for its whole guard time. The agent reads the same six button pins and no dial.
 
 Each row of the menu shows the last result of its test and a short detail. The detail holds 26 characters at most, so the row fits 79 columns. The console keeps column 80 blank. The work rows and the `diag` marker give the full detail. The status row under the help line shows the last test or the run-all summary. A test writes its lines in the area under the menu.
 
@@ -197,12 +201,14 @@ The port is the mini UART: in QEMU, the second serial port. On hardware it reach
 
 | Command | Effect |
 |---|---|
-| `state` | One line: `phase sel test trusted fb pending` |
+| `state` | One line: `phase trusted fb sel test request pending`. `request` is the test the port asked for that has not started. `pending` is the count of input events not taken yet. |
 | `diag <name>` | Starts one test. `diag all` runs all. `err busy` while a test runs. |
 | `dump` | The screen text |
 | `key`, `char`, `text` | The library's built-in input commands |
 | `reboot` | Restarts the board through the watchdog |
 
 `diag` only records the request. The main loop runs the test, so the port keeps answering.
+
+The port answers between input events, so a reply can come before the image handled the keys sent ahead of it. The tests read the screen only after a `state` reply with `pending=0`.
 
 The test build, `build/diagtest/diag.img`, adds `fault <addr>`. It flips one bit at that address after the memory test writes it. It also stops the memory test at 16 MiB. It also adds `sdwrite`: the next SD run sends one write through its guard and reports the result as `probe_rc`. The guard counts and refuses it, so that run fails with `writes=1` and the card does not change. That run clears the request, so later runs send no write. `sdmulti` makes the guard fail every multi-block read of the next SD run with `BLK_ERR_IO`, while single-block reads reach the card. That run fails with `chunk_errors` above 0 and `errors=0`, and clears the request. It is not shipped.
