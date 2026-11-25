@@ -305,7 +305,7 @@ def test_screen_starts_fixed_path_without_maint_entry(board, mfboot_image, test_
         screen_starts_fixed_path(vm)
         assert os_flags(vm) == COLD | BIT1
         c = one(vm, "choose")
-        assert (c["index"], c["name"], c["path"], c["via"]) == ("0", "MAINT", MAINT, "key"), c
+        assert (c["index"], c["name"], c["path"], c["via"]) == ("-1", "MAINT", MAINT, "key"), c
 
 
 def test_screen_starts_fixed_path_without_boot_cfg(board, mfboot_image, test_os, need_mtools,
@@ -316,7 +316,7 @@ def test_screen_starts_fixed_path_without_boot_cfg(board, mfboot_image, test_os,
         assert one(vm, "config")["result"] == "missing"
         assert os_flags(vm) == COLD | BIT1
         c = one(vm, "choose")
-        assert (c["index"], c["path"]) == ("0", MAINT), c
+        assert (c["index"], c["path"]) == ("-1", MAINT), c
 
 
 def test_missing_maint_sys(board, mfboot_image, test_os, need_mtools, tmp_path):
@@ -351,3 +351,26 @@ def test_request_with_bit_1_received(board, chain1_maint_image, mfboot, test_os,
         # chain1's cold flag as received, bit 1, and bit 3 for the request.
         assert os_flags(vm) == COLD | BIT1 | BIT3
         assert len(events(vm, "maint_open")) == 1
+
+
+def test_bit_1_received_and_held_back(board, chain1_maint_image, mfboot, test_os, need_mtools,
+                                      tmp_path):
+    """A received bit 1 and BACK held through the guard: why=flag, and the screen
+    stays open. The guard's BACK press does not close it."""
+    files = os_files(test_os)
+    files["/ROBCO/MFBOOT.SYS"] = mfboot
+    high = [p for name, p in PINS.items() if name != "back"]
+    with after(chain1_maint_image, board, card(tmp_path, files), qtest=True,
+               gpio_high=high) as vm:
+        io = PiGpio(vm, board, names=PINS)
+        vm.wait_for(OPEN, timeout=TIMEOUT)
+        assert one(vm, "handoff")["trusted"] == "1"
+        assert one(vm, "input")["buttons"] == "active"
+        assert one(vm, "maint_open")["why"] == "flag"
+        io.release("back")
+        st = state(vm)
+        assert (st["phase"], st["maint"]) == ("menu", "1"), st
+        assert not events(vm, "maint_close"), vm.serial
+        key(vm, "back")
+        vm.wait_for(CLOSE, timeout=TIMEOUT)
+        assert state(vm)["maint"] == "0"

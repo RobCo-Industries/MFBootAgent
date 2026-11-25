@@ -47,6 +47,12 @@ int mfb_req_present(int stat_rc, int is_dir);
  */
 int mfb_req_line(int read_rc, const char *data, size_t len, char *out, size_t size);
 
+/*
+ * The maint_req rc when there is no request: 0 for a missing name or a
+ * folder, else the fs_stat() error. A request sets rc from the delete.
+ */
+int mfb_req_none_rc(int stat_rc);
+
 /* The marker result after fs_unlink(): MFB_REQ_FOUND for 0, MFB_REQ_CLEAR_FAILED otherwise. */
 int mfb_req_result(int unlink_rc);
 
@@ -60,11 +66,12 @@ int mfb_req_result(int unlink_rc);
 int mfb_start_screen(int req, int trusted, uint32_t received, int *why);
 
 /*
- * 1 when the screen opened at start ignores its first BACK press: the
- * request opened it and BACK was held through the button guard. The
- * guard queues that press, and the person held BACK to reach the
- * screen, not to close it. So a request and a held BACK give one
- * screen, with why=request.
+ * 1 when the screen opened at start ignores its first BACK press: BACK
+ * was held through the button guard, whatever `why` opened it, a
+ * request or a received bit 1. The guard queues that press, and the
+ * person held BACK to reach the screen, not to close it. So the screen
+ * never closes the moment it opens. `why` is kept for the caller's
+ * marker only.
  */
 int mfb_start_skip_back(int why, int back_held);
 
@@ -87,6 +94,9 @@ uint32_t mfb_boot_flags(uint32_t flags, int trusted, uint32_t received, int open
  * MFB_MAINT_PATH.
  */
 const mfb_entry_t *mfb_maint_entry(const mfb_cfg_t *cfg, unsigned *index);
+
+/* The choose index of MFB_MAINT_PATH with no MAINT entry. Entries count from 1. */
+#define MFB_MAINT_FIXED_INDEX (-1)
 
 /* An entry named MAINT at MFB_MAINT_PATH with no cmdline. */
 void mfb_maint_fixed(mfb_entry_t *e);

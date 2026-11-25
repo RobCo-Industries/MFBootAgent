@@ -44,6 +44,19 @@ TEST(only_a_regular_file_counts)
     CHECK_EQ(mfb_req_present(FS_ERR_IO, 0), 0);
 }
 
+/* rc of a none result: 0 only for a missing name or a folder, else the stat error. */
+TEST(none_rc_carries_the_stat_error)
+{
+    CHECK_EQ(mfb_req_none_rc(FS_ERR_NOENT), 0);
+    CHECK_EQ(mfb_req_none_rc(FS_OK), 0);
+    CHECK_EQ(mfb_req_none_rc(FS_ERR_IO), FS_ERR_IO);
+    CHECK_EQ(mfb_req_none_rc(FS_ERR_CORRUPT), FS_ERR_CORRUPT);
+    CHECK_EQ(mfb_req_none_rc(FS_ERR_GONE), FS_ERR_GONE);
+    /* Such an error is still no request: a normal boot. */
+    CHECK_EQ(mfb_req_present(FS_ERR_IO, 0), 0);
+    CHECK_EQ(MFB_MAINT_FIXED_INDEX, -1);
+}
+
 /* Failure table: an empty file is a request with no line. */
 TEST(empty_file_has_no_line)
 {
@@ -149,8 +162,9 @@ TEST(held_back_with_a_request)
 {
     CHECK_EQ(mfb_start_skip_back(MFB_WHY_REQUEST, 1), 1);
     CHECK_EQ(mfb_start_skip_back(MFB_WHY_REQUEST, 0), 0);
-    CHECK_EQ(mfb_start_skip_back(MFB_WHY_FLAG, 1), 0);
-    CHECK_EQ(mfb_start_skip_back(MFB_WHY_BUTTON, 1), 0);
+    /* A received bit 1 and held BACK: the screen stays open too. */
+    CHECK_EQ(mfb_start_skip_back(MFB_WHY_FLAG, 1), 1);
+    CHECK_EQ(mfb_start_skip_back(MFB_WHY_FLAG, 0), 0);
 }
 
 /* Every road for bits 1 and 3, from a cold block and from received flags. */

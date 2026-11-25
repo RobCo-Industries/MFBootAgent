@@ -49,15 +49,15 @@ The volume is mounted with write support. The stage writes exactly one thing on 
 
 Right after the mount, before `BOOT.CFG`, the menu and the countdown, the stage looks for `/ROBCO/MAINT.REQ` by its plain name. It runs no recovery of work names. `src/maintreq.c` holds the rules, `main.c` runs the calls.
 
-1. `fs_stat()`. A missing name, a folder or a failed call is no request. A folder stays as it is.
+1. `fs_stat()`. A missing name, a folder or a failed call is no request, and the boot goes on as normal. A folder stays as it is.
 2. `fs_read_file()` into a 65-byte buffer. The line shows on the screen when it has 1 to 63 bytes from 0x20 to 0x7E, with one optional CR, LF or CRLF at the end. An empty file, a longer content, a failed read or any other byte shows no line. The request counts either way.
 3. `fs_unlink()`. The delete comes before any action, so the request is one-shot. `fs_unlink()` syncs the volume before it returns.
-4. `maint_req result=found rc=0`, or `result=clear_failed rc=<code>` when the delete failed. With no request, `result=none rc=0`. The marker prints once per boot in which the volume mounted. When nothing mounts, the stage halts and prints no `maint_req`.
+4. `maint_req result=found rc=0`, or `result=clear_failed rc=<code>` when the delete failed. With no request, `result=none`, with `rc=0` for a missing name or a folder and the `fs_stat()` error code when the call failed. The marker prints once per boot in which the volume mounted. When nothing mounts, the stage halts and prints no `maint_req`.
 5. The menu shows with no countdown, then the maintenance screen opens with `maint_open why=request`. Its output rows show `MAINTENANCE REQUESTED` and the request line, if any. After a failed delete they add a notice: the file could not be deleted, with the code, and the request comes back at each start until the file is removed.
 
 The stage never loops. Closing the screen leaves the menu with no countdown, and no image boots without a key. A delete that keeps failing opens the screen again at each start.
 
-A request with `boot_flags` bit 1 received opens one screen, `why=request`. A request with BACK held through the button guard opens one screen too. The guard queues a press for the held BACK, and the screen ignores that first BACK so it does not close at once. The next BACK closes it as usual.
+A request with `boot_flags` bit 1 received opens one screen, `why=request`. Whenever the screen opens at start, for a request or a received bit 1, with BACK held through the button guard, the screen ignores the first BACK. The guard queues a press for the held BACK, and the screen would otherwise close at once. The next BACK closes it as usual.
 
 ### 3. BOOT.CFG
 
@@ -95,7 +95,7 @@ The screen takes 18 rows below the text on screen, scrolling like the menu, and 
 | Verify entries | Mounts the volume afresh, as in [Card changes](#card-changes), then runs the header read and `loader_load()` of a boot on every entry, without the jump. The OS slot is the work buffer, since nothing runs there yet. One row per entry, then the counts. A failed mount gives one `E02 IO` line. |
 | System | Board, memory, boot volume, trust, `boot_flags` received, version, RobCo-Core pin, screen path |
 | Configuration | The `config` result, default, timeout, entry count, and the `ignored`, `dup`, `bad` and `clamped` counts |
-| Start the maintenance image | Closes the screen and boots the maintenance image as an entry chosen by key: the path of the `MAINT` entry when `BOOT.CFG` has one, else `/ROBCO/MAINT.SYS`. The fallback menu has no `MAINT` entry, so it uses the fixed path. `choose` gives the entry's index, or `index=0` for the fixed path. A missing or bad file is the usual load error under the menu. |
+| Start the maintenance image | Closes the screen and boots the maintenance image as an entry chosen by key: the path of the `MAINT` entry when `BOOT.CFG` has one, else `/ROBCO/MAINT.SYS`. The fallback menu has no `MAINT` entry, so it uses the fixed path. `choose` gives the entry's index, or `index=-1` for the fixed path. Entries count from 1. A missing or bad file is the usual load error under the menu. |
 | Reboot | `reboot source=screen`, then the watchdog, as the port's `reboot` |
 | Back to the boot menu | Closes the screen |
 
@@ -169,7 +169,7 @@ In the order they print.
 | `countdown` | `state`, `seconds` | `state=start` when the menu shows with a timeout above 0, `state=stopped` when a key stops it |
 | `ready` | | The menu shows |
 | `select` | `index name` | The selection moved. `index` counts from 1. |
-| `choose` | `index name path via` | An entry is to boot. `via` is `key` or `timeout`. The screen's Start the maintenance image gives `via=key`, and `index=0` with no `MAINT` entry. |
+| `choose` | `index name path via` | An entry is to boot. `via` is `key` or `timeout`. The screen's Start the maintenance image gives `via=key`, and `index=-1` with no `MAINT` entry. |
 | `error` | `code path name`, or `code path what rc` | A load failed, or `code=io` with `what=sd` or `what=fat` |
 | `load` | `path size crc addr name subtype` | The image loaded and passed every check |
 | `bootinfo` | `flags caps dev part_lba path cmdline_len scheme cx cy` | The boot info as handed over |
@@ -290,9 +290,9 @@ An entry header is `entry`, one or more spaces or tabs, then the name. The stage
 | A boot agent or other non-OS subtype | Refused with code 6, `bounds`, before the ABI and CRC steps |
 | Boot volume markers | `/ROBCO/BOOT.CFG` and `/ROBCO/UOS.SYS` |
 | `boot_flags` after this stage | Fallback bit cleared. Bits 1 and 3 by the spec's rule, see [5. Load and handoff](#5-load-and-handoff). Other bits kept. |
-| `fs_stat()` of `MAINT.REQ` fails with an error other than a missing name | Treated as no request: `maint_req result=none rc=0`. The spec does not name this case. |
-| `choose` for the fixed path `/ROBCO/MAINT.SYS` | `index=0 name=MAINT`, since no menu entry holds it. The spec does not name the index. |
-| A request with BACK held at start | The screen ignores the BACK press the guard queued, so it stays open |
+| `fs_stat()` of `MAINT.REQ` fails with an error other than a missing name | No request and a normal boot, with the error in the marker: `maint_req result=none rc=<code>`. `rc=0` only for a missing name or a folder. The spec does not name this case. |
+| `choose` for the fixed path `/ROBCO/MAINT.SYS` | `index=-1 name=MAINT`. Entries count from 1, so neither 0 nor -1 is a real index, and -1 reads plainly as none. The spec does not name the index. |
+| BACK held at start when a request or a received bit 1 opens the screen | The screen ignores the BACK press the guard queued, so it stays open whatever `why` is. The marker keeps `why=request` or `why=flag`. |
 | `MAINT` entry name | Matched in any case, as `BOOT.CFG` compares entry names |
 | Markers of the maintenance screen | `maint_open`, `maint_drop`, `maint_action`, `verify_entry`, `verify_done`, `maint_close`, and `source=screen` for `reboot` |
 | `input` keys | The spec's keys, plus `gpio buttons repeat live` |

@@ -1,6 +1,7 @@
 #include "maintreq.h"
 
 #include <robco/bootinfo.h>
+#include <robco/fs.h>
 #include <robco/klibc.h>
 #include <robco/rimg.h>
 
@@ -51,6 +52,11 @@ int mfb_req_line(int read_rc, const char *data, size_t len, char *out, size_t si
     return 1;
 }
 
+int mfb_req_none_rc(int stat_rc)
+{
+    return stat_rc == FS_ERR_NOENT ? 0 : stat_rc;
+}
+
 int mfb_req_result(int unlink_rc)
 {
     return unlink_rc == 0 ? MFB_REQ_FOUND : MFB_REQ_CLEAR_FAILED;
@@ -71,7 +77,8 @@ int mfb_start_screen(int req, int trusted, uint32_t received, int *why)
 
 int mfb_start_skip_back(int why, int back_held)
 {
-    return why == MFB_WHY_REQUEST && back_held;
+    (void)why;
+    return back_held != 0;
 }
 
 uint32_t mfb_boot_flags(uint32_t flags, int trusted, uint32_t received, int opened, int req,

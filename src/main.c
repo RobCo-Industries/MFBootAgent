@@ -375,6 +375,7 @@ static void check_request(void)
     mfb.req_line[0] = '\0';
     k_memset(&st, 0, sizeof(st));
     rc = fs_stat(MFB_REQ_PATH, &st);
+    mfb.req_rc = mfb_req_none_rc(rc);
     if (mfb_req_present(rc, st.is_dir)) {
         rc = fs_read_file(MFB_REQ_PATH, buf, sizeof(buf), &len);
         (void)mfb_req_line(rc, buf, len, mfb.req_line, sizeof(mfb.req_line));
@@ -657,8 +658,8 @@ static void show_menu(void)
 {
     /*
      * A request, or bit 1 received: the maintenance screen opens in place
-     * of the countdown. A request with BACK held gives one screen: the
-     * BACK press the guard queued does not close it.
+     * of the countdown. With BACK held, whatever opened it, the BACK
+     * press the guard queued does not close it.
      */
     int why = MFB_WHY_FLAG;
     int at_start = mfb_start_screen(mfb.req, mfb.inherited, mfb.flags_in, &why);
@@ -782,7 +783,8 @@ int mfb_check_entry(const mfb_entry_t *e, loader_result_t *out)
 static void boot_selected(void)
 {
     const mfb_entry_t *e = &mfb_cfg.entry[menu.sel];
-    unsigned index = menu.sel + 1;
+    unsigned slot = 0;
+    int index = (int)menu.sel + 1;
     int via_key = menu.via == MFB_VIA_KEY;
     char line[MFB_LINE_MAX];
     char name[sizeof(res.hdr->name) + 1];
@@ -790,17 +792,20 @@ static void boot_selected(void)
     int rc;
 
     if (start_maint) {
-        /* The screen's action: the MAINT entry, or MFB_MAINT_PATH with index 0. */
+        /* The screen's action: the MAINT entry, or MFB_MAINT_PATH with index -1. */
         start_maint = 0;
         via_key = 1;
-        e = mfb_maint_entry(&mfb_cfg, &index);
+        e = mfb_maint_entry(&mfb_cfg, &slot);
+        index = (int)slot;
         if (e == NULL) {
+            /* Entries count from 1: -1 is no real entry's index. */
+            index = MFB_MAINT_FIXED_INDEX;
             mfb_maint_fixed(&maint_fixed);
             e = &maint_fixed;
         }
     }
     mfb.phase = MFB_PHASE_LOAD;
-    MFB_MARK("choose index=%u name=%s path=%s via=%s", index, e->name, e->path,
+    MFB_MARK("choose index=%d name=%s path=%s via=%s", index, e->name, e->path,
              via_key ? "key" : "timeout");
     redraw();
     mfb_line_loading(line, sizeof(line), e);
