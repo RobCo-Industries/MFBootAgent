@@ -88,6 +88,12 @@ typedef struct {
  */
 void mt_card_keys(char *out, size_t size, const mt_walk_t *w, const mt_space_t *sp);
 
+/* The keys of a card_error marker: "path=<path> what=<what> rc=<rc>", path encoded. */
+void mt_card_error_keys(char *out, size_t size, const char *path, int what, int rc);
+
+/* The keys of the first failure: "first_path=<path> first_what=<what>", path encoded. */
+void mt_card_first_keys(char *out, size_t size, const mt_walk_t *w);
+
 /* Work row 1: "<n> folders, <n> files, <n> errors." */
 void mt_card_counts(char *out, size_t size, const mt_walk_t *w);
 

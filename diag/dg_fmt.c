@@ -276,6 +276,88 @@ const char *dg_u64(char out[DG_U64_SIZE], uint64_t v)
     return out;
 }
 
+static int mval_plain(unsigned char c)
+{
+    return c >= 0x21u && c <= 0x7eu && c != '%' && c != '=';
+}
+
+const char *dg_mval(char *out, size_t size, const char *in)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    const unsigned char *p = (const unsigned char *)(in != NULL ? in : "");
+    size_t pos = 0;
+
+    if (size < 4) {
+        if (size != 0) {
+            out[0] = '\0';
+        }
+        return out;
+    }
+    if (*p == '\0') {
+        k_memcpy(out, "%00", 4);
+        return out;
+    }
+    for (; *p != '\0'; p++) {
+        size_t k = mval_plain(*p) ? 1u : 3u;
+        /* Keep room for the cut mark while more bytes follow. */
+        size_t need = pos + k + (p[1] != '\0' ? 1u : 0u);
+
+        if (need > size - 1) {
+            out[pos++] = '%';
+            break;
+        }
+        if (k == 1) {
+            out[pos++] = (char)*p;
+        } else {
+            out[pos++] = '%';
+            out[pos++] = hex[*p >> 4];
+            out[pos++] = hex[*p & 0x0fu];
+        }
+    }
+    out[pos] = '\0';
+    return out;
+}
+
+static char printable(char c)
+{
+    unsigned char u = (unsigned char)c;
+
+    return u >= 0x20u && u <= 0x7eu ? c : '?';
+}
+
+const char *dg_sname(char *out, size_t size, const char *in, unsigned width)
+{
+    size_t n = in != NULL ? k_strlen(in) : 0;
+    size_t i;
+
+    if (size == 0) {
+        return out;
+    }
+    if (width < 4 || size <= width) {
+        out[0] = '\0';
+        return out;
+    }
+    if (n <= width) {
+        for (i = 0; i < n; i++) {
+            out[i] = printable(in[i]);
+        }
+        out[n] = '\0';
+        return out;
+    }
+    for (i = 0; i < width - 3u; i++) {
+        out[i] = printable(in[i]);
+    }
+    k_memcpy(out + i, "...", 4);
+    return out;
+}
+
+void dg_printable(char *text)
+{
+    for (; *text != '\0'; text++) {
+        *text = printable(*text);
+    }
+}
+
 int dg_timer_judge(uint64_t timer_us, uint32_t ticks, uint32_t asked_hz, uint32_t hz,
                    uint32_t missed, int32_t *ppm, uint32_t *limit_ppm)
 {

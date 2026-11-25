@@ -12,6 +12,7 @@
 #include <robco/klibc.h>
 
 #include "mt.h"
+#include "../diag/dg_fmt.h"
 #include "mt_home.h"
 #include "mt_view.h"
 
@@ -100,10 +101,18 @@ static mt_view_t view;
 /* Chooser rows: 0 the help, 1 to LIST the files, then a note. */
 #define LIST        (MT_WORK_ROWS - 3u)
 #define ROW_NOTE    (MT_WORK_ROWS - 2u)
+/* A chooser row: the mark, the name in NAME_COLS columns, the path in the rest of 79. */
+#define NAME_COLS   26u
+#define PATH_COLS   (COLS - 2u - NAME_COLS)
+/* The shortest path in the pager header. The longest header, 67 columns of counts, still fits. */
+#define HEAD_PATH_MIN 12u
 
 static void draw_choice(unsigned sel, unsigned top)
 {
     char line[MT_LINE_MAX];
+    char name[NAME_COLS + 1];
+    char path[PATH_COLS + 1];
+    char v[DG_MVAL_SIZE];
     unsigned i;
 
     mt_work_line(0, "Choose a file. UP/DOWN: move   ENTER: view   ESC: back", 0);
@@ -111,8 +120,9 @@ static void draw_choice(unsigned sel, unsigned top)
         unsigned k = top + i;
 
         if (k < nfiles) {
-            k_snprintf(line, sizeof(line), "%c %-26s%s", k == sel ? '>' : ' ', files[k].name,
-                       files[k].path);
+            k_snprintf(line, sizeof(line), "%c %-26s%s", k == sel ? '>' : ' ',
+                       dg_sname(name, sizeof(name), files[k].name, NAME_COLS - 1u),
+                       dg_sname(path, sizeof(path), files[k].path, PATH_COLS));
         } else {
             line[0] = '\0';
         }
@@ -120,7 +130,7 @@ static void draw_choice(unsigned sel, unsigned top)
     }
     mt_home_note(line, sizeof(line), &home);
     mt_work_line(ROW_NOTE, line, 0);
-    mt_mark("view_choose sel=%u name=%s", sel + 1, files[sel].name);
+    mt_mark("view_choose sel=%u name=%s", sel + 1, dg_mval(v, sizeof(v), files[sel].name));
 }
 
 /* The chooser. Returns the file index, or -1 when BACK cancels it. */
@@ -190,23 +200,30 @@ static int read_head(const char *path)
     return (int)got;
 }
 
-static void draw_page(const char *path, uint32_t size, unsigned first)
+static void draw_page(const char *full, uint32_t size, unsigned first)
 {
     char line[MT_LINE_MAX];
+    char tail[MT_LINE_MAX];
+    char path[MT_LINE_MAX];
+    size_t n;
     unsigned i;
 
+    /* The counts first: the path takes what is left of the row, at least HEAD_PATH_MIN. */
     if (size > MT_VIEW_MAX) {
-        k_snprintf(line, sizeof(line), "%s: %u bytes, the first %u shown", path,
-                   (unsigned)size, MT_VIEW_MAX);
+        k_snprintf(tail, sizeof(tail), ": %u bytes, the first %u shown", (unsigned)size,
+                   MT_VIEW_MAX);
     } else {
-        k_snprintf(line, sizeof(line), "%s: %u bytes", path, (unsigned)size);
+        k_snprintf(tail, sizeof(tail), ": %u bytes", (unsigned)size);
     }
     if (view.binary != 0) {
-        size_t n = k_strlen(line);
-
-        k_snprintf(line + n, sizeof(line) - n, ", %u bytes shown as '.'",
+        n = k_strlen(tail);
+        k_snprintf(tail + n, sizeof(tail) - n, ", %u bytes shown as '.'",
                    (unsigned)view.binary);
     }
+    n = k_strlen(tail);
+    (void)dg_sname(path, sizeof(path), full,
+                   n + HEAD_PATH_MIN < COLS ? (unsigned)(COLS - n) : HEAD_PATH_MIN);
+    k_snprintf(line, sizeof(line), "%s%s", path, tail);
     mt_work_line(0, line, 0);
     for (i = 0; i < PAGE; i++) {
         if (view.lines == 0 && i == 0) {
@@ -275,6 +292,8 @@ static void list_fault(mt_run_t *r)
 
 static void view_file(mt_run_t *r)
 {
+    char v[DG_MVAL_SIZE];
+    char name[NAME_COLS + 1];
     fs_stat_t st;
     int i;
     int rc;
@@ -295,20 +314,21 @@ static void view_file(mt_run_t *r)
         mt_work_clear();
         return;
     }
-    mt_keys(r, "path=%s", files[i].path);
+    mt_keys(r, "path=%s", dg_mval(v, sizeof(v), files[i].path));
+    (void)dg_sname(name, sizeof(name), files[i].name, NAME_COLS - 1u);
     mt_work_clear();
     rc = fs_stat(files[i].path, &st);
     if (rc == FS_ERR_NOENT) {
         r->result = MT_ABSENT;
         mt_keys(r, "why=missing");
-        mt_text(r, "No %s.", files[i].name);
+        mt_text(r, "No %s.", name);
         mt_work_line(0, "File not found.", 1);
         return;
     }
     if (rc == 0 && st.is_dir) {
         r->result = MT_FAIL;
         mt_keys(r, "why=isdir");
-        mt_text(r, "%s is a folder.", files[i].name);
+        mt_text(r, "%s is a folder.", name);
         return;
     }
     n = rc == 0 ? read_head(files[i].path) : rc;
@@ -325,7 +345,7 @@ static void view_file(mt_run_t *r)
     r->result = MT_OK;
     mt_keys(r, "size=%u shown=%u lines=%u binary=%u truncated=%d", (unsigned)st.size,
             (unsigned)view.len, view.lines, (unsigned)view.binary, st.size > view.len);
-    mt_text(r, "%s, %u lines.", files[i].name, view.lines);
+    mt_text(r, "%s, %u lines.", name, view.lines);
 }
 
 void mt_tool_view(mt_run_t *r)

@@ -107,6 +107,22 @@ def test_short_diag_fails(board, diag_image, good_card_files, need_mtools, tmp_p
         assert rows[17] == "SD: FAILED. DIAG.SYS: short", rows
 
 
+def test_name_with_a_space(board, diag_image, good_card_files, need_mtools, tmp_path):
+    """A long name with a space stays one marker value, as in MAINT.SYS."""
+    files = good_card_files
+    files["/ROBCO/My Image.SYS"] = b"x" * 16
+    sd = mfboot.card(tmp_path, files)
+    with alone(diag_image, board, sd=sd) as vm:
+        m = run(vm, "sd")
+        assert (m["result"], m["images"], m["bad_images"]) == ("fail", "4", "1"), m
+        assert mfboot.mval(m["bad_path"]) == ("/ROBCO/My Image.SYS", False), m
+        found = {mfboot.mval(p)[0]: v for p, v in images(vm).items()}
+        assert found["/ROBCO/My Image.SYS"]["rc"] == "short", found
+        state(vm)
+        _, rows = dump(vm)
+        assert any(r.startswith("My Image.SYS") and "FAILED  short" in r for r in rows), rows
+
+
 def test_bad_magic_fails(board, diag_image, good_card_files, need_mtools, tmp_path):
     files = good_card_files
     files[mfboot.UOS] = mfboot.flip(files[mfboot.UOS], 0x20)

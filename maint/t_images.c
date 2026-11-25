@@ -71,15 +71,9 @@ static void op_report(void *ctx, const dg_sd_entry_t *e, int out)
     if (out == DG_SDF_OTHER) {
         return;
     }
-    mt_mark("image path=" DIR_PATH "/%s size=%u rc=%s", e->name, (unsigned)e->size,
-            dg_sd_outcome_name(out));
-    if (out == DG_SDF_OK) {
-        k_snprintf(line, sizeof(line), "%-12s %8u  OK      %s subtype %u", e->name,
-                   (unsigned)e->size, c->name, c->subtype);
-    } else {
-        k_snprintf(line, sizeof(line), "%-12s %8u  FAILED  %s", e->name, (unsigned)e->size,
-                   dg_sd_outcome_name(out));
-    }
+    dg_sd_image_keys(line, sizeof(line), DIR_PATH, e, out);
+    mt_mark("image %s", line);
+    dg_sd_row(line, sizeof(line), e, out, c->name, c->subtype);
     mt_work_line(c->row++, line, 1);
 }
 
@@ -98,6 +92,8 @@ void mt_tool_images(mt_run_t *r)
     const dg_sd_ops_t ops = { &sc, op_opendir, op_readdir, op_closedir, op_check, op_report,
                               op_abort };
     static dg_sd_scan_t s;
+    char keys[MT_KEYS_MAX];
+    char name[DG_SD_NAME_COLS + 1];
     int rc;
 
     if (mt_need_card(r) != 0) {
@@ -116,8 +112,8 @@ void mt_tool_images(mt_run_t *r)
     }
     mt_keys(r, "images=%u bad=%u", s.images, s.bad);
     if (s.bad != 0) {
-        mt_keys(r, "bad_path=" DIR_PATH "/%s bad_rc=%s", s.bad_name,
-                dg_sd_outcome_name(s.first_bad));
+        dg_sd_bad_keys(keys, sizeof(keys), DIR_PATH, &s);
+        mt_keys(r, "%s", keys);
     }
     if (rc == DG_SD_SCAN_ABORT) {
         r->result = MT_FAIL;
@@ -129,7 +125,8 @@ void mt_tool_images(mt_run_t *r)
         mt_text(r, "Folder read error %d.", s.dir_rc);
     } else if (s.bad != 0) {
         r->result = MT_FAIL;
-        mt_text(r, "%s: %s", s.bad_name, dg_sd_outcome_name(s.first_bad));
+        mt_text(r, "%s: %s", dg_sname(name, sizeof(name), s.bad_name, DG_SD_NAME_COLS),
+                dg_sd_outcome_name(s.first_bad));
     } else if (s.images == 0) {
         r->result = MT_ABSENT;
         mt_text(r, "No image files.");

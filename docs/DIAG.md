@@ -209,7 +209,7 @@ The stage name is `diag`. Each line starts with `@RC stage=diag`.
 | `diag` | `name result`, then the test keys below |
 | `diag_done` | `ok fail absent skipped` |
 | `diag_progress` | `name step pct`, at most one per 500 ms |
-| `sd_image` | `path size rc` |
+| `sd_image` | `path size rc`. `path`, like `bad_path` in `sd`, is encoded as [MAINT.md](MAINT.md#marker-values) states, so `/ROBCO/My Image.SYS` gives `path=/ROBCO/My%20Image.SYS`. |
 | `video_pattern` | `name width height` |
 | `input_view` | `state gpio idle_ms` |
 | `input_event` | `source type code value` |

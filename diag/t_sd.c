@@ -149,19 +149,10 @@ static void op_report(void *ctx, const dg_sd_entry_t *e, int out)
     char line[DG_LINE_MAX];
 
     if (out != DG_SDF_OTHER) {
-        dg_mark("sd_image path=" DIR_PATH "/%s size=%u rc=%s", e->name, (unsigned)e->size,
-                dg_sd_outcome_name(out));
+        dg_sd_image_keys(line, sizeof(line), DIR_PATH, e, out);
+        dg_mark("sd_image %s", line);
     }
-    if (out == DG_SDF_OTHER) {
-        k_snprintf(line, sizeof(line), "%-12s %8u  -       not an image", e->name,
-                   (unsigned)e->size);
-    } else if (out == DG_SDF_OK) {
-        k_snprintf(line, sizeof(line), "%-12s %8u  OK      %s subtype %u", e->name,
-                   (unsigned)e->size, c->name, c->subtype);
-    } else {
-        k_snprintf(line, sizeof(line), "%-12s %8u  FAILED  %s", e->name, (unsigned)e->size,
-                   dg_sd_outcome_name(out));
-    }
+    dg_sd_row(line, sizeof(line), e, out, c->name, c->subtype);
     dg_work_line(c->row++, line, 1);
 }
 
@@ -193,8 +184,10 @@ static int check_files(dg_run_t *r, dg_sd_scan_t *s)
     dg_keys(r, "files=%u images=%u bad_images=%u others=%u", s->files, s->images, s->bad,
             s->others);
     if (s->bad != 0) {
-        dg_keys(r, "bad_path=" DIR_PATH "/%s bad_rc=%s", s->bad_name,
-                dg_sd_outcome_name(s->first_bad));
+        char keys[DG_KEYS_MAX];
+
+        dg_sd_bad_keys(keys, sizeof(keys), DIR_PATH, s);
+        dg_keys(r, "%s", keys);
     }
     if (rc == DG_SD_SCAN_DIRERR) {
         dg_keys(r, "dir_rc=%d", s->dir_rc);
@@ -284,7 +277,10 @@ void dg_test_sd(dg_run_t *r)
     } else if (scan == DG_SD_SCAN_DIRERR) {
         dg_text(r, DG_TX_SD_DIRERR, sc.dir_rc);
     } else if (sc.bad != 0) {
-        dg_text(r, DG_TX_SD_BAD, sc.bad_name, dg_sd_outcome_name(sc.first_bad));
+        char name[DG_SD_NAME_COLS + 1];
+
+        dg_text(r, DG_TX_SD_BAD, dg_sname(name, sizeof(name), sc.bad_name, DG_SD_NAME_COLS),
+                dg_sd_outcome_name(sc.first_bad));
     } else if (guard.writes != 0) {
         dg_text(r, DG_TX_SD_WRITES, (unsigned)guard.writes);
     } else {

@@ -103,6 +103,22 @@ void dg_text(dg_run_t *r, const char *fmt, ...)
 }
 
 /*
+ * Text from the card can hold any byte. Every byte outside 0x20 to 0x7E
+ * goes out as '?', so a row stays one row on the screen and on the serial
+ * port.
+ */
+static void put_text(void (*put)(char), const char *text, size_t n)
+{
+    size_t i;
+
+    for (i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)text[i];
+
+        put(c >= 0x20u && c <= 0x7eu ? (char)c : '?');
+    }
+}
+
+/*
  * Writes one screen row, padded with spaces to the last column so every
  * cell of the row is known. The last column stays blank: the console
  * would wrap on the next character.
@@ -118,14 +134,14 @@ static void put_row(unsigned row, const char *text, unsigned attr, int to_uart)
         }
         console_set_cursor(0, row);
         console_set_attr(attr);
-        console_write(text, n);
+        put_text(console_putc, text, n);
         console_set_attr(CONSOLE_ATTR_NORMAL);
         for (; n + 1 < cols; n++) {
             console_putc(' ');
         }
     }
     if (to_uart && text[0] != '\0') {
-        uart_puts(text);
+        put_text(uart_putc, text, k_strlen(text));
         uart_putc('\n');
     }
 }
@@ -229,7 +245,7 @@ static void draw_menu(int to_uart)
         draw_item(i);
         if (to_uart) {
             dg_line_item(line, sizeof(line), i, i == menu.sel, results[i], texts[i]);
-            uart_puts(line);
+            put_text(uart_putc, line, k_strlen(line));
             uart_putc('\n');
         }
     }

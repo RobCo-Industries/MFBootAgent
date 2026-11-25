@@ -18,6 +18,11 @@
 #define CHUNK (32u * 1024u)
 /* Work rows: 0 progress, 1 the counts, 2 the free space, from 3 the failures. */
 #define ROW_ERR0 3u
+/*
+ * The path of an error row. "ERROR ", ": ", the longest what and the
+ * longest fs_strerror() text, 25 characters, leave 38 of 79 columns.
+ */
+#define PATH_COLS 38u
 
 typedef struct {
     mt_run_t *r;
@@ -99,17 +104,6 @@ static int op_file(void *ctx, const char *path, uint32_t size)
     return c->stop ? 0 : rc;
 }
 
-/* A path for a marker value: no spaces. */
-static void marker_path(char *out, size_t size, const char *path)
-{
-    size_t i;
-
-    for (i = 0; i + 1 < size && path[i] != '\0'; i++) {
-        out[i] = path[i] == ' ' ? '_' : path[i];
-    }
-    out[i] = '\0';
-}
-
 static const char *rc_name(int what, int rc)
 {
     if (what == MT_WE_FILE && rc == MT_WALK_SHORT) {
@@ -124,14 +118,14 @@ static const char *rc_name(int what, int rc)
 static void op_error(void *ctx, const char *path, int what, int rc)
 {
     walk_ctx_t *c = ctx;
-    char mpath[MT_WALK_PATH + 1];
+    char keys[MT_LINE_MAX];
+    char name[PATH_COLS + 1];
     char line[MT_LINE_MAX];
 
-    marker_path(mpath, sizeof(mpath), path);
-    mt_mark("card_error path=%s what=%s rc=%d", mpath, mt_walk_what(what),
-            what == MT_WE_FILE && rc == MT_WALK_SHORT ? 0 : rc);
-    k_snprintf(line, sizeof(line), "ERROR %s: %s %s", path, mt_walk_what(what),
-               rc_name(what, rc));
+    mt_card_error_keys(keys, sizeof(keys), path, what, rc);
+    mt_mark("card_error %s", keys);
+    k_snprintf(line, sizeof(line), "ERROR %s: %s %s", dg_sname(name, sizeof(name), path,
+               PATH_COLS), mt_walk_what(what), rc_name(what, rc));
     mt_work_line(c->row++, line, 1);
 }
 
@@ -175,10 +169,8 @@ void mt_tool_card(mt_run_t *r)
     mt_card_keys(keys, sizeof(keys), &w, &sp);
     mt_keys(r, "%s", keys);
     if (w.errors != 0) {
-        char mpath[MT_WALK_PATH + 1];
-
-        marker_path(mpath, sizeof(mpath), w.first_path);
-        mt_keys(r, "first_path=%s first_what=%s", mpath, mt_walk_what(w.first_what));
+        mt_card_first_keys(keys, sizeof(keys), &w);
+        mt_keys(r, "%s", keys);
     }
     mt_keys(r, "ms=%u", (unsigned)(timer_now_ms() - t0));
     mt_card_counts(line, sizeof(line), &w);

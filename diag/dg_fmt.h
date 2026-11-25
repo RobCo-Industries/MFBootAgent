@@ -57,8 +57,8 @@ int dg_counts_result(const dg_counts_t *c, int stopped);
 #define DG_LINE_MAX     128u
 /* The detail text of a result on the screen. */
 #define DG_TEXT_MAX     64u
-/* The test keys of a result marker. */
-#define DG_KEYS_MAX     320u
+/* The test keys of a result marker: room for two encoded values of DG_MVAL_SIZE. */
+#define DG_KEYS_MAX     448u
 
 /*
  * The detail texts of the menu rows, set by dg_text(). A row with a result
@@ -222,6 +222,36 @@ unsigned dg_percent(uint64_t done, uint64_t total);
 #define DG_U64_SIZE 21u
 /* Writes v in decimal into out and returns out. */
 const char *dg_u64(char out[DG_U64_SIZE], uint64_t v);
+
+/* ---- Text from the card or a person ---- */
+
+/*
+ * A marker value is one run of printable characters with no space:
+ * BOOT_PROTOCOL.md's VCHAR except SP. Every marker value that carries
+ * text from the card or a person, such as a path or a file name, goes
+ * through dg_mval(), the one encoder of both images:
+ *   - bytes 0x21 to 0x7E stay, except '%' and '=';
+ *   - every other byte, '%', '=', a space, a control byte or a byte
+ *     above 0x7E, becomes %XX, two upper-case hex digits;
+ *   - an empty text is "%00";
+ *   - a value that does not fit is cut after a whole character or
+ *     escape and ends with a lone '%', which no whole value can.
+ * A reader splits the line at spaces, each key at its first '=', and
+ * decodes each %XX. DG_MVAL_SIZE holds an encoded value and its end.
+ */
+#define DG_MVAL_SIZE    128u
+/* Encodes `in` into out, of size at least 4, and returns out. */
+const char *dg_mval(char *out, size_t size, const char *in);
+
+/*
+ * A name for a screen field of `width` columns, 4 or more: bytes 0x20 to
+ * 0x7E stay, every other byte shows as '?'. A longer name shows its
+ * first width - 3 characters and "...". Returns out, of size > width.
+ */
+const char *dg_sname(char *out, size_t size, const char *in, unsigned width);
+
+/* Every byte of `text` outside 0x20 to 0x7E becomes '?', in place: a row stays one row. */
+void dg_printable(char *text);
 
 /* ---- Verdicts ---- */
 

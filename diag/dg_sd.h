@@ -125,7 +125,8 @@ typedef struct {
 #define DG_SD_SCAN_DIRERR   2   /* opendir or readdir failed: dir_rc */
 #define DG_SD_SCAN_ABORT    3   /* abort asked to stop */
 
-#define DG_SD_NAME_MAX 64u
+/* A whole long name, FS_NAME_MAX bytes, and its end. */
+#define DG_SD_NAME_MAX 256u
 
 typedef struct {
     unsigned files;     /* regular files */
@@ -144,6 +145,30 @@ typedef struct {
  * is the opendir code for a missing directory. Returns DG_SD_SCAN_*.
  */
 int dg_sd_scan(const dg_sd_ops_t *ops, int noent_rc, dg_sd_scan_t *s);
+
+/*
+ * The marker keys of one image of the scan: "path=<dir>/<name> size=<n>
+ * rc=<outcome>". The path and the outcome go through dg_mval(). Both
+ * images print them: MAINT.SYS as `image`, DIAG.SYS as `sd_image`.
+ */
+void dg_sd_image_keys(char *out, size_t size, const char *dir, const dg_sd_entry_t *e,
+                      int outcome);
+
+/* The keys of the first bad image: "bad_path=<dir>/<name> bad_rc=<outcome>", encoded. */
+void dg_sd_bad_keys(char *out, size_t size, const char *dir, const dg_sd_scan_t *s);
+
+/* The file column of a screen row: names longer than this end in "...". */
+#define DG_SD_NAME_COLS 12u
+
+/*
+ * One screen row of the scan, the same in both images: the file name in
+ * DG_SD_NAME_COLS columns, its size, then "OK" with the header name and
+ * subtype, "FAILED" with the outcome, or "-" for another file. Names
+ * from the card go through dg_sname(), so the row is one row of at most
+ * 79 columns. hdr_name is the header name of a good image, else unused.
+ */
+void dg_sd_row(char *out, size_t size, const dg_sd_entry_t *e, int outcome,
+               const char *hdr_name, unsigned subtype);
 
 /*
  * The write guard in front of the card. blk_write() refuses a device

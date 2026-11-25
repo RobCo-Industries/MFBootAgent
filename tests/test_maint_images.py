@@ -83,3 +83,20 @@ def test_write_is_counted_and_refused(board, maint_test_image, good_card):
         m = run(vm, "check_images")
         assert (m["result"], m["writes"]) == ("ok", "0"), m
     assert digest(good_card) == before
+
+
+def test_name_with_a_space(board, maint_image, good_files, need_mtools, tmp_path):
+    """A long name with a space stays one marker value and parses back whole."""
+    files = dict(good_files)
+    files["/ROBCO/My Image.SYS"] = b"x" * 16
+    sd = card(tmp_path, files)
+    with alone(maint_image, board, sd=sd) as vm:
+        m = run(vm, "check_images")
+        assert (m["result"], m["images"], m["bad"]) == ("fail", "4", "1"), m
+        assert m["bad_path"] == "/ROBCO/My%20Image.SYS", m
+        assert mf.mval(m["bad_path"]) == ("/ROBCO/My Image.SYS", False), m
+        found = {mf.mval(p)[0]: v for p, v in images(vm).items()}
+        assert found["/ROBCO/My Image.SYS"] == ("short", "16"), found
+        state(vm)
+        _, rows = dump(vm)
+        assert any(r.startswith("My Image.SYS") and "FAILED  short" in r for r in rows), rows

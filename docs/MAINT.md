@@ -13,7 +13,7 @@ Every number on this page comes from QEMU. Nothing has been tried on real hardwa
 | Link address | `0x00400000`, the OS slot |
 | Header name, version | `MAINT`, 0.1.0 |
 | Stage id, marker name | 4, `maint` |
-| Size | 96896 bytes from one build. It changes with the toolchain. |
+| Size | 100424 bytes from one build. It changes with the toolchain. |
 
 ## Who may use it
 
@@ -239,10 +239,10 @@ The stage name is `maint`. Each line starts with `@RC stage=maint`. The image pr
 | `select` | `index name` |
 | `tool` | `name result`, then the tool keys below |
 | `progress` | `name pct`, at most one per 500 ms |
-| `card_error` | `path what rc` |
-| `image` | `path size rc` |
+| `card_error` | `path what rc`. `path` is encoded, see [Marker values](#marker-values). |
+| `image` | `path size rc`. `path` is encoded. |
 | `view_list` | `files users cut home home_rc stat_errors stat_rc long`. `home` is `ok`, `missing` or `error`. |
-| `view_choose` | `sel name` |
+| `view_choose` | `sel name`. `name` is encoded. |
 | `view_page` | `first last lines` |
 | `i2c` | `rc`, at the first use of I2C |
 | `clock_form` | `now`, the chip's time, or `invalid` or `error` with `rc` |
@@ -252,6 +252,19 @@ The stage name is `maint`. Each line starts with `@RC stage=maint`. The image pr
 | `reboot` | `source`: `tool` or `maint` |
 
 `name` is `check_card`, `check_images`, `view_file`, `set_clock`, `restore_users` or `restart`. `result` is `ok`, `fail`, `absent`, `off` or `refused`.
+
+### Marker values
+
+A marker value has no space: the spec's grammar is `VCHAR` except `SP`. Every value that carries text from the card goes through `dg_mval()` of `diag/dg_fmt.c`, the one encoder of both images. That is `path` of `card_error` and `image`, `first_path` and `bad_path` of `tool`, `name` of `view_choose` and `path` of `view_file`, and `path` and `bad_path` of `DIAG.SYS`'s SD test. The `rc` names of `image` go through it too.
+
+- Bytes `0x21` to `0x7E` stay as they are, except `%` and `=`.
+- Every other byte becomes `%XX`, two upper-case hex digits: a space, `%`, `=`, a control byte, and each byte of a UTF-8 name above `0x7E`. `/ROBCO/My Image.SYS` gives `/ROBCO/My%20Image.SYS`.
+- An empty text is `%00`.
+- A value longer than 127 characters is cut after a whole character or escape and ends with a lone `%`, which no whole value can.
+
+A reader splits the line at spaces, each key at its first `=`, and decodes each `%XX`. `mval()` in `tests/mfboot.py` does this, and `tests/host/test_maint_marker.c` builds each marker with a hostile name and parses it back. The set clock values are digits and dashes the form builds, so they need no encoding. No marker carries a request line or a config value.
+
+On the screen and the serial port, every byte outside `0x20` to `0x7E` shows as `?`, so a row stays one row. A name longer than its column ends in `...`: 12 columns in the image rows, 25 in the view chooser, 38 for the path of a check card error row. The pager header cuts the path to what the counts leave of 79 columns.
 
 | Tool | Keys after `result` |
 |---|---|
@@ -282,7 +295,8 @@ The test build, `build/mainttest/maint.img`, adds `wprobe`. The next read-only t
 
 - `diag/dg_sd.c`: the image name rule, the scan of `/ROBCO` and the write guard. The guard gained `pass`, set only by restore users. `DIAG.SYS` never sets it.
 - `diag/dg_sdimg.c`: the check of one image file, moved out of `diag/t_sd.c`.
-- `diag/dg_fmt.c`: the progress rate and `dg_u64()`, the 64-bit number formatter.
+- `diag/dg_fmt.c`: the progress rate, `dg_u64()`, the 64-bit number formatter, and `dg_mval()`, the marker value encoder.
+- `dg_sd_image_keys()`, `dg_sd_bad_keys()` and `dg_sd_row()` in `diag/dg_sd.c`: the image marker keys and screen row of both images.
 - `src/portreq.c`: the port request rule.
 
 The screen rows, the screen set-up, the input set-up and the port commands are copied from `diag/main.c`. Sharing them would mean reshaping `DIAG.SYS`'s state.

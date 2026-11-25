@@ -63,8 +63,8 @@ int mt_tool_readonly(unsigned tool);
 #define MT_LINE_MAX     160u
 /* The detail text of a result on its menu row. */
 #define MT_TEXT_MAX     64u
-/* The tool keys of a result marker. */
-#define MT_KEYS_MAX     320u
+/* The tool keys of a result marker: room for two encoded values of DG_MVAL_SIZE. */
+#define MT_KEYS_MAX     448u
 
 /*
  * A menu row with a result has MT_ITEM_FIXED columns before its text, and

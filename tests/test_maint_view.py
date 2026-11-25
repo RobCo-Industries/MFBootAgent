@@ -246,3 +246,22 @@ def test_home_does_not_read(board, maint_image, good_files, need_mtools, tmp_pat
         state(vm)
         assert dump(vm)[1][12] == "View file: FAILED. /UOS/HOME read error %s." % lst["home_rc"]
     assert digest(sd) == before
+
+
+def test_user_name_with_a_space(board, maint_image, good_files, need_mtools, tmp_path):
+    """A user folder whose long name has a space: one value in view_choose and path=."""
+    files = dict(good_files)
+    files["/UOS/HOME/Mary Ann/TERMINAL.CFG"] = b"[terminal]\ncolour = green\n"
+    sd = card(tmp_path, files)
+    with alone(maint_image, board, sd=sd) as vm:
+        lst, rows = chooser(vm)
+        assert (lst["files"], lst["users"], lst["home"]) == ("4", "1", "ok"), lst
+        assert rows[HEAD + 4] == "  " + "Mary Ann/TERMINAL.CFG".ljust(26) + \
+            "/UOS/HOME/Mary Ann/TERMINAL.CFG", rows
+        rows = open_nth(vm, 3)
+        assert rows[TEXT0:TEXT0 + 2] == ["[terminal]", "colour = green"], rows
+        names = [mf.mval(m["name"]) for m in events(vm, "view_choose")]
+        assert names[-1] == ("Mary Ann/TERMINAL.CFG", False), names
+        m = close(vm)
+        assert m["result"] == "ok", m
+        assert mf.mval(m["path"]) == ("/UOS/HOME/Mary Ann/TERMINAL.CFG", False), m

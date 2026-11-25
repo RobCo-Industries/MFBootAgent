@@ -165,3 +165,20 @@ void mt_card_free(char *out, size_t size, const mt_space_t *sp)
     k_snprintf(out, size, "Free %s KiB of %s KiB.", dg_u64(a, sp->free_bytes >> 10),
                dg_u64(b, sp->total_bytes >> 10));
 }
+
+void mt_card_error_keys(char *out, size_t size, const char *path, int what, int rc)
+{
+    char v[DG_MVAL_SIZE];
+
+    /* A short file has no fs code: rc 0. */
+    k_snprintf(out, size, "path=%s what=%s rc=%d", dg_mval(v, sizeof(v), path),
+               mt_walk_what(what), what == MT_WE_FILE && rc == MT_WALK_SHORT ? 0 : rc);
+}
+
+void mt_card_first_keys(char *out, size_t size, const mt_walk_t *w)
+{
+    char v[DG_MVAL_SIZE];
+
+    k_snprintf(out, size, "first_path=%s first_what=%s", dg_mval(v, sizeof(v), w->first_path),
+               mt_walk_what(w->first_what));
+}

@@ -5,6 +5,7 @@
 #include <robco/klibc.h>
 #include <robco/rimg.h>
 
+#include "dg_fmt.h"
 #include "dg_sd.h"
 
 void dg_sd_plan(dg_sd_plan_t *p, uint64_t start, uint64_t blocks)
@@ -255,4 +256,50 @@ int dg_sd_cid_blank(const uint32_t cid[4])
     }
     return cid[0] == 0xffffffffu && cid[1] == 0xffffffffu && cid[2] == 0xffffffffu &&
            cid[3] == 0xffffff00u;
+}
+
+/* "<dir>/<name>" encoded into out, of DG_MVAL_SIZE. */
+static const char *enc_path(char out[DG_MVAL_SIZE], const char *dir, const char *name)
+{
+    char path[DG_SD_NAME_MAX + 16];
+
+    k_snprintf(path, sizeof(path), "%s/%s", dir, name != NULL ? name : "");
+    return dg_mval(out, DG_MVAL_SIZE, path);
+}
+
+void dg_sd_image_keys(char *out, size_t size, const char *dir, const dg_sd_entry_t *e,
+                      int outcome)
+{
+    char path[DG_MVAL_SIZE];
+    char rc[DG_MVAL_SIZE];
+
+    k_snprintf(out, size, "path=%s size=%u rc=%s", enc_path(path, dir, e->name),
+               (unsigned)e->size, dg_mval(rc, sizeof(rc), dg_sd_outcome_name(outcome)));
+}
+
+void dg_sd_bad_keys(char *out, size_t size, const char *dir, const dg_sd_scan_t *s)
+{
+    char path[DG_MVAL_SIZE];
+    char rc[DG_MVAL_SIZE];
+
+    k_snprintf(out, size, "bad_path=%s bad_rc=%s", enc_path(path, dir, s->bad_name),
+               dg_mval(rc, sizeof(rc), dg_sd_outcome_name(s->first_bad)));
+}
+
+void dg_sd_row(char *out, size_t size, const dg_sd_entry_t *e, int outcome,
+               const char *hdr_name, unsigned subtype)
+{
+    char name[DG_SD_NAME_COLS + 1];
+    char hdr[DG_SD_NAME_COLS + 8];
+
+    (void)dg_sname(name, sizeof(name), e->name, DG_SD_NAME_COLS);
+    if (outcome == DG_SDF_OTHER) {
+        k_snprintf(out, size, "%-12s %8u  -       not an image", name, (unsigned)e->size);
+    } else if (outcome == DG_SDF_OK) {
+        k_snprintf(out, size, "%-12s %8u  OK      %s subtype %u", name, (unsigned)e->size,
+                   dg_sname(hdr, sizeof(hdr), hdr_name, 16), subtype);
+    } else {
+        k_snprintf(out, size, "%-12s %8u  FAILED  %s", name, (unsigned)e->size,
+                   dg_sd_outcome_name(outcome));
+    }
 }
