@@ -318,6 +318,18 @@ TEST(rng_verdict)
     }
     CHECK_EQ(dg_rng_judge(w, 1024, &rep, &bits), DG_FAIL);
     CHECK_EQ(bits, 1024);
+    /* A generator stuck at zero, or at one value with half its bits set. */
+    for (i = 0; i < 1024; i++) {
+        w[i] = 0;
+    }
+    CHECK_EQ(dg_rng_judge(w, 1024, &rep, &bits), DG_FAIL);
+    CHECK_EQ(bits, 0);
+    for (i = 0; i < 1024; i++) {
+        w[i] = 0x5a5a5a5au;
+    }
+    CHECK_EQ(dg_rng_judge(w, 1024, &rep, &bits), DG_FAIL);
+    CHECK_EQ(rep, 1023);
+    CHECK_EQ(bits, 16384);
     CHECK_EQ(dg_rng_judge(w, 1, &rep, &bits), DG_SKIPPED);
     CHECK_EQ(dg_rng_judge(NULL, 1024, &rep, &bits), DG_SKIPPED);
 }
