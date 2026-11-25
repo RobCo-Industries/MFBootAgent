@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 
+#include <robco/audio.h>
 #include <robco/klibc.h>
 
 #include "dg_fmt.h"
@@ -344,6 +345,34 @@ int dg_video_judge(const dg_vmode_t *mode, const dg_vmode_t *fb)
         return DG_VID_OFFSET;
     }
     return DG_VID_OK;
+}
+
+int dg_audio_start(int init_rc)
+{
+    if (init_rc == 0 || init_rc == AUDIO_ERR_NO_PWM || init_rc == AUDIO_ERR_PIN) {
+        return DG_AUD_PLAY;
+    }
+    return DG_AUD_NOINIT;
+}
+
+int dg_audio_judge(int init_rc, int trace)
+{
+    if (dg_audio_start(init_rc) != DG_AUD_PLAY) {
+        return DG_AUD_NOINIT;
+    }
+    if (init_rc != 0) {
+        return DG_AUD_FELLBACK;
+    }
+    return trace ? DG_AUD_TRACE : DG_AUD_OK;
+}
+
+int dg_audio_result(int verdict)
+{
+    switch (verdict) {
+    case DG_AUD_OK:    return DG_OK;
+    case DG_AUD_TRACE: return DG_ABSENT;
+    default:           return DG_FAIL;
+    }
 }
 
 int dg_x_stuck(const uint8_t reg[4])

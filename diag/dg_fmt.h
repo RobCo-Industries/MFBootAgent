@@ -105,6 +105,7 @@ int dg_counts_result(const dg_counts_t *c, int stopped);
 #define DG_TX_AUD_TONE      "Tone %u Hz failed: %d."
 #define DG_TX_AUD_TUNE      "The tune failed: %d."
 #define DG_TX_AUD_OK        "%s, %u tones, %u notes"
+#define DG_TX_AUD_NONE      "No sound output found."
 /* input */
 #define DG_TX_IN_OK         "%u events, exit %s"
 /* timer */
@@ -251,5 +252,26 @@ typedef struct {
 #define DG_VID_ORDER    2
 #define DG_VID_OFFSET   3
 int dg_video_judge(const dg_vmode_t *mode, const dg_vmode_t *fb);
+
+/*
+ * The audio test. dg_audio_start() reads the audio_init() code before any
+ * sound: DG_AUD_NOINIT when audio cannot play at all, else DG_AUD_PLAY.
+ * dg_audio_judge() gives the verdict of a run whose tones and tune all
+ * played in time. trace is 1 when audio_backend() is "trace".
+ *   DG_AUD_OK       init 0 and the PWM backend played: OK.
+ *   DG_AUD_FELLBACK init AUDIO_ERR_NO_PWM or AUDIO_ERR_PIN: the PWM was
+ *                   asked for and failed, the trace played: FAILED.
+ *   DG_AUD_TRACE    init 0 and the trace backend played: no PWM was found,
+ *                   so no sound could come out: ABSENT.
+ * dg_audio_result() maps a DG_AUD_* to DG_OK, DG_FAIL or DG_ABSENT.
+ */
+#define DG_AUD_OK       0
+#define DG_AUD_PLAY     DG_AUD_OK
+#define DG_AUD_NOINIT   1
+#define DG_AUD_FELLBACK 2
+#define DG_AUD_TRACE    3
+int dg_audio_start(int init_rc);
+int dg_audio_judge(int init_rc, int trace);
+int dg_audio_result(int verdict);
 
 #endif

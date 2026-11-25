@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <robco/audio.h>
+
 #include "dg_fmt.h"
 #include "dg_menu.h"
 #include "rc_test.h"
@@ -334,6 +336,50 @@ TEST(rng_verdict)
     CHECK_EQ(dg_rng_judge(NULL, 1024, &rep, &bits), DG_SKIPPED);
 }
 
+TEST(audio_pwm_clean_run_is_ok)
+{
+    CHECK_EQ(dg_audio_start(0), DG_AUD_PLAY);
+    CHECK_EQ(dg_audio_judge(0, 0), DG_AUD_OK);
+    CHECK_EQ(dg_audio_result(dg_audio_judge(0, 0)), DG_OK);
+}
+
+TEST(audio_trace_clean_run_is_absent)
+{
+    /* No PWM found: init 0, the trace played. No sound could come out. */
+    CHECK_EQ(dg_audio_judge(0, 1), DG_AUD_TRACE);
+    CHECK_EQ(dg_audio_result(dg_audio_judge(0, 1)), DG_ABSENT);
+}
+
+TEST(audio_driver_error_fails)
+{
+    /* The PWM failed and the trace took over: the run plays, then fails. */
+    CHECK_EQ(dg_audio_start(AUDIO_ERR_NO_PWM), DG_AUD_PLAY);
+    CHECK_EQ(dg_audio_start(AUDIO_ERR_PIN), DG_AUD_PLAY);
+    CHECK_EQ(dg_audio_judge(AUDIO_ERR_NO_PWM, 1), DG_AUD_FELLBACK);
+    CHECK_EQ(dg_audio_judge(AUDIO_ERR_PIN, 1), DG_AUD_FELLBACK);
+    CHECK_EQ(dg_audio_result(DG_AUD_FELLBACK), DG_FAIL);
+    /* Any other init error: nothing plays. */
+    CHECK_EQ(dg_audio_start(AUDIO_ERR_NO_TICK), DG_AUD_NOINIT);
+    CHECK_EQ(dg_audio_start(AUDIO_ERR_TIMER), DG_AUD_NOINIT);
+    CHECK_EQ(dg_audio_judge(AUDIO_ERR_TIMER, 1), DG_AUD_NOINIT);
+    CHECK_EQ(dg_audio_result(DG_AUD_NOINIT), DG_FAIL);
+}
+
+TEST(audio_absent_among_ok_runs_all_ok)
+{
+    dg_counts_t c;
+    unsigned i;
+
+    /* Run all with every row OK except an ABSENT audio row reads OK. */
+    dg_counts_init(&c);
+    for (i = 0; i < 8; i++) {
+        dg_counts_add(&c, DG_OK);
+    }
+    dg_counts_add(&c, dg_audio_result(dg_audio_judge(0, 1)));
+    CHECK_EQ(c.n[DG_ABSENT], 1);
+    CHECK_EQ(dg_counts_result(&c, 0), DG_OK);
+}
+
 TEST(video_verdict)
 {
     dg_vmode_t fb = { 640, 480, 32, 2560, 1, 0, 0, 0 };
@@ -414,6 +460,7 @@ static void worst_texts(void)
     T(DG_TX_AUD_TONE, 4000u, -99);
     T(DG_TX_AUD_TUNE, -99);
     T(DG_TX_AUD_OK, "trace", 5u, 6u);
+    T(DG_TX_AUD_NONE);
     T(DG_TX_IN_OK, 99999u, "back2");
     T(DG_TX_TMR_STOP, 100u);
     T(DG_TX_TMR_OK, 2147483647, 100u);
