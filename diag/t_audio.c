@@ -3,7 +3,9 @@
  * It reports the backend the library chose: "pwm" on hardware, "trace"
  * where the PWM does not answer, as in QEMU. The trace backend prints
  * one "audio" marker per call, which proves the calls but not a sound.
- * Each sound has a bound: its own length plus WAIT_SLACK_MS.
+ * Each sound has a bound: its own length plus WAIT_SLACK_MS. When
+ * audio_init() reports that the PWM failed and the trace backend took
+ * over, the test plays through the trace and then fails.
  */
 
 #include <stdint.h>
@@ -112,7 +114,13 @@ void dg_test_audio(dg_run_t *r)
         stopped(r, w, "tune");
         return;
     }
-    r->result = DG_OK;
     dg_keys(r, "tones=%u notes=%u", (unsigned)TONES, (unsigned)NOTES);
+    if (init_rc != 0) {
+        /* PWM failed and the trace backend played: the calls ran, no sound did. */
+        r->result = DG_FAIL;
+        dg_text(r, DG_TX_AUD_PWM, init_rc);
+        return;
+    }
+    r->result = DG_OK;
     dg_text(r, DG_TX_AUD_OK, audio_backend(), (unsigned)TONES, (unsigned)NOTES);
 }
