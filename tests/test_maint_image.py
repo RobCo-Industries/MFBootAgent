@@ -52,7 +52,10 @@ def test_from_the_agent_menu(board, mfboot_image, maint_image, good_card):
         st = state(vm)
         assert (st["phase"], st["trusted"], st["card"]) == ("menu", "1", "1"), st
         _, rows = dump(vm)
-        assert rows[:len(MENU_ROWS)] == MENU_ROWS, rows
+        # The menu entry: boot_flags bit 1 shows as a fact on the status row.
+        want = list(MENU_ROWS)
+        want[12] = "Maintenance asked. Choose a tool."
+        assert rows[:len(MENU_ROWS)] == want, rows
         assert not any("MFBOOT" in r for r in rows), rows
 
 

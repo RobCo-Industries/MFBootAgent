@@ -2,7 +2,9 @@
 deleted and honoured once, boot_flags bits 1 and 3 reach the next image,
 and the maintenance screen starts the maintenance image.
 
-The test OS sealed with subtype 2 stands in for MAINT.SYS.
+The test OS sealed with subtype 2 stands in for MAINT.SYS here: these
+tests read boot_flags from the image they boot, and the test OS prints
+them. test_maint_road.py runs the same roads with the real MAINT.SYS.
 """
 
 import os
