@@ -13,7 +13,7 @@ Every number on this page comes from QEMU. Nothing has been tried on real hardwa
 | Link address | `0x00400000`, the OS slot |
 | Header name, version | `MAINT`, 0.1.0 |
 | Stage id, marker name | 4, `maint` |
-| Size | 95208 bytes from one build. It changes with the toolchain. |
+| Size | 96896 bytes from one build. It changes with the toolchain. |
 
 ## Who may use it
 
