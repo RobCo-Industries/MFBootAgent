@@ -239,8 +239,8 @@ The stage name is `maint`. Each line starts with `@RC stage=maint`. The image pr
 | `select` | `index name` |
 | `tool` | `name result`, then the tool keys below |
 | `progress` | `name pct`, at most one per 500 ms |
-| `card_error` | `path what rc`. `path` is encoded, see [Marker values](#marker-values). |
-| `image` | `path size rc`, then `fs_rc` with `rc=open`. `path` is encoded. |
+| `card_error` | `what rc path`. `path` is encoded, see [Marker values](#marker-values). |
+| `image` | `rc size`, then `fs_rc` with `rc=open`, then `path`, encoded. |
 | `view_list` | `files users cut home home_rc stat_errors stat_rc long`. `home` is `ok`, `missing` or `error`. |
 | `view_choose` | `sel name`. `name` is encoded. |
 | `view_page` | `first last lines` |
@@ -268,14 +268,26 @@ On the screen and the serial port, every byte outside `0x20` to `0x7E` shows as 
 
 | Tool | Keys after `result` |
 |---|---|
-| `check_card` | `dirs files bytes errors free_bytes total_bytes fat`, `first_path first_what` on a failure, `ms`, `why=stopped`, `writes` |
-| `check_images` | `images bad`, `bad_path bad_rc` for the first bad image with `bad_fs_rc` when it is `open`, `dir_rc`, `why=stopped`, `writes`. No `/ROBCO`: `images=0 dir=missing writes`. |
-| `view_file` | `list=error list_rc` when the listing saw a fault, `path`, then `size shown lines binary truncated`, or `why`: `missing`, `isdir`, `read` with `rc`, `cancel`. Then `writes`. |
+| `check_card` | `dirs files bytes errors free_bytes total_bytes fat`, `first_what` on a failure, `ms`, `why=stopped`, then `first_path` on a failure, then `writes` |
+| `check_images` | `images bad`, `bad_rc` for the first bad image with `bad_fs_rc` when it is `open`, `why=stopped` or `dir_rc`, then `bad_path`, then `writes`. No `/ROBCO`: `images=0 dir=missing writes`. |
+| `view_file` | `list=error list_rc` when the listing saw a fault, then `size shown lines binary truncated`, or `why`: `missing`, `isdir`, `read` with `rc`, `cancel`. Then `path`, then `writes`. |
 | `set_clock` | `chip`, `now_rc` when the time did not read, then `set read`, or `why`: `cancel`, `no`, `set`, `readback`. No chip: `addr=0x68 rc`. A failed probe: `why=probe addr=0x68 rc`. |
 | `restore_users` | `why` when not OK, `from to size` after the question, `rc` on an error, `rc` or `line` with `why=config` |
 | `restart` | None. `reboot` follows. |
 
-A `tool` marker whose keys do not fit drops the key that does not fit and ends with `keys_cut=1`. Room for it is always kept, so a short marker never looks whole. `dg_keys_add()` in `diag/dg_fmt.c` builds the keys of both images.
+### Marker length
+
+A marker never hides its result. One rule holds in both images:
+
+- The short keys come first: `rc`, `fs_rc`, `result`, `why`, counts. The one key with text from the card comes last, so a cut can only shorten that text.
+- A cut is marked. A cut text ends with a lone `%`. Keys that lost a key carry `keys_cut=1`.
+- Each buffer is sized from named constants in `diag/dg_fmt.h`, `diag/dg_sd.h` and `maint/mt_walk.h`: the longest encoded value, 127 characters, and the longest number of each key. A `_Static_assert` ties each buffer to its constant.
+
+`image` and `card_error` hold every key whole, the path cut by `dg_mval()` alone. A `tool` marker adds its keys through `dg_keys_add()`, which drops a key that does not fit and ends the keys with `keys_cut=1`. Its text key, set by `mt_keys_last()`, goes after the others through `dg_keys_text()`, cut to the room left. A read-only tool keeps room for `writes` past all of them, so `writes` is always there. A reader finds keys by name, so the order is for the cut, not for the reader.
+
+`k_printf()` sends a marker to the UART byte by byte with no buffer. The limit of a marker line is the `mt_mark()` buffer, `MT_MARK_SIZE`, 608 bytes after `ev=`. A line past it would lose whole keys and end with `keys_cut=1`; no marker reaches it.
+
+The screen rows cut names with `...` and never the result: the result word and the outcome come from fixed text, and the name has a fixed column.
 
 Without a card, the tools that need it give `why=sd rc` with ABSENT for no card, or `why=mount rc` with FAILED.
 
@@ -297,8 +309,8 @@ The test build, `build/mainttest/maint.img`, adds `wprobe`. The next read-only t
 
 - `diag/dg_sd.c`: the image name rule, the scan of `/ROBCO` and the write guard. The guard gained `pass`, set only by restore users. `DIAG.SYS` never sets it.
 - `diag/dg_sdimg.c`: the check of one image file, moved out of `diag/t_sd.c`.
-- `diag/dg_fmt.c`: the progress rate, `dg_u64()`, the 64-bit number formatter, and `dg_mval()`, the marker value encoder.
-- `dg_sd_image_keys()`, `dg_sd_bad_keys()` and `dg_sd_row()` in `diag/dg_sd.c`: the image marker keys and screen row of both images.
+- `diag/dg_fmt.c`: the progress rate, `dg_u64()`, the 64-bit number formatter, `dg_mval()`, the marker value encoder, and `dg_keys_add()`, `dg_keys_text()` and `dg_mark_fit()`, the marker length rule.
+- `dg_sd_image_keys()`, `dg_sd_bad_keys()`, `dg_sd_path()` and `dg_sd_row()` in `diag/dg_sd.c`: the image marker keys and screen row of both images.
 - `src/portreq.c`: the port request rule.
 
 The screen rows, the screen set-up, the input set-up and the port commands are copied from `diag/main.c`. Sharing them would mean reshaping `DIAG.SYS`'s state.

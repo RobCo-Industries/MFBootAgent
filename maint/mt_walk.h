@@ -9,6 +9,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "../diag/dg_fmt.h"
+
 /* Folders open at once: the root and seven levels below it. */
 #define MT_WALK_DEPTH   8u
 /* The longest path, as the file system takes it. */
@@ -88,10 +90,23 @@ typedef struct {
  */
 void mt_card_keys(char *out, size_t size, const mt_walk_t *w, const mt_space_t *sp);
 
-/* The keys of a card_error marker: "path=<path> what=<what> rc=<rc>", path encoded. */
+/* A mt_walk_what() word: 7 bytes at most. */
+#define MT_WHAT_MAX     DG_STR_LEN("opendir")
+
+/*
+ * The keys of a card_error marker: "what=<what> rc=<rc>", then
+ * "path=<path>" last, encoded. A buffer of MT_CARD_ERROR_KEYS_SIZE holds
+ * every key whole; a smaller one can only cut the path, and marks the cut.
+ */
+#define MT_CARD_ERROR_KEYS_SIZE (DG_STR_LEN("what=") + MT_WHAT_MAX + DG_KEY_INT("rc") + \
+                                 DG_KEY_TEXT("path") + 1u)
 void mt_card_error_keys(char *out, size_t size, const char *path, int what, int rc);
 
-/* The keys of the first failure: "first_path=<path> first_what=<what>", path encoded. */
+/*
+ * The short key of the first failure: "first_what=<what>". Its path goes
+ * last in the result keys as "first_path", through mt_keys_last().
+ */
+#define MT_CARD_FIRST_KEYS_SIZE (DG_STR_LEN("first_what=") + MT_WHAT_MAX + 1u)
 void mt_card_first_keys(char *out, size_t size, const mt_walk_t *w);
 
 /* Work row 1: "<n> folders, <n> files, <n> errors." */

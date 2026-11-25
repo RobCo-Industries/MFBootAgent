@@ -107,6 +107,10 @@ static mt_view_t view;
 /* The shortest path in the pager header. The longest header, 67 columns of counts, still fits. */
 #define HEAD_PATH_MIN 12u
 
+/* A view_choose marker holds its key whole. */
+_Static_assert(MT_MARK_SIZE >= DG_STR_LEN("view_choose sel=") + DG_UINT_CHARS + DG_KEY_TEXT("name") + 1u,
+               "view_choose marker");
+
 static void draw_choice(unsigned sel, unsigned top)
 {
     char line[MT_LINE_MAX];
@@ -292,7 +296,6 @@ static void list_fault(mt_run_t *r)
 
 static void view_file(mt_run_t *r)
 {
-    char v[DG_MVAL_SIZE];
     char name[NAME_COLS + 1];
     fs_stat_t st;
     int i;
@@ -314,7 +317,7 @@ static void view_file(mt_run_t *r)
         mt_work_clear();
         return;
     }
-    mt_keys(r, "path=%s", dg_mval(v, sizeof(v), files[i].path));
+    mt_keys_last(r, "path", files[i].path);
     (void)dg_sname(name, sizeof(name), files[i].name, NAME_COLS - 1u);
     mt_work_clear();
     rc = fs_stat(files[i].path, &st);

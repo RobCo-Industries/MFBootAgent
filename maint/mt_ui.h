@@ -10,6 +10,8 @@
 
 #include <robco/input.h>
 
+#include "../diag/dg_fmt.h"
+
 /* Tool results, as BOOT_PROTOCOL.md gives them for the tool marker. */
 enum {
     MT_OK = 0,
@@ -63,8 +65,17 @@ int mt_tool_readonly(unsigned tool);
 #define MT_LINE_MAX     160u
 /* The detail text of a result on its menu row. */
 #define MT_TEXT_MAX     64u
-/* The tool keys of a result marker: room for two encoded values of DG_MVAL_SIZE. */
+/* The tool keys of a result marker: its short keys, then one encoded text. */
 #define MT_KEYS_MAX     448u
+/*
+ * One marker after "ev=", as DG_MARK_SIZE: the only limit of a marker
+ * line. It holds the tool marker with the longest name and result.
+ */
+#define MT_MARK_SIZE    (MT_LINE_MAX + MT_KEYS_MAX)
+#define MT_TOOL_HEAD_MAX DG_STR_LEN("tool name=restore_users result=refused ")
+_Static_assert(MT_MARK_SIZE >= MT_TOOL_HEAD_MAX + MT_KEYS_MAX, "tool marker buffer");
+/* Read-only tools: room kept at the end of the keys for " writes=<n>". */
+#define MT_WRITES_KEY   DG_KEY_UINT("writes")
 
 /*
  * A menu row with a result has MT_ITEM_FIXED columns before its text, and

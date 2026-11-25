@@ -15,6 +15,8 @@
 
 #include <robco/blk.h>
 
+#include "dg_fmt.h"
+
 #define DG_SD_CHUNK     64u         /* blocks per read, 32 KiB */
 #define DG_SD_FULL_MAX  65536u      /* blocks: 32 MiB */
 #define DG_SD_SAMPLES   1024u       /* chunks when the volume is larger */
@@ -148,19 +150,32 @@ typedef struct {
  */
 int dg_sd_scan(const dg_sd_ops_t *ops, int noent_rc, dg_sd_scan_t *s);
 
+/* An outcome word: dg_sd_outcome_name() gives 7 bytes at most; a longer one is cut and marked. */
+#define DG_SD_RC_SIZE   16u
+
 /*
- * The marker keys of one image of the scan: "path=<dir>/<name> size=<n>
- * rc=<outcome>", then "fs_rc=<code>" for DG_SDF_OPEN. The path and the outcome go through dg_mval(). Both
- * images print them: MAINT.SYS as `image`, DIAG.SYS as `sd_image`.
+ * The marker keys of one image of the scan: "rc=<outcome> size=<n>",
+ * "fs_rc=<code>" for DG_SDF_OPEN, then "path=<dir>/<name>" last. The
+ * outcome and the path go through dg_mval(). Both images print them:
+ * MAINT.SYS as `image`, DIAG.SYS as `sd_image`. A buffer of
+ * DG_SD_IMAGE_KEYS_SIZE holds every key whole; a smaller one can only cut
+ * the path, and marks the cut.
  */
+#define DG_SD_IMAGE_KEYS_SIZE (DG_STR_LEN("rc=") + DG_SD_RC_SIZE - 1u + DG_KEY_UINT("size") + \
+                               DG_KEY_INT("fs_rc") + DG_KEY_TEXT("path") + 1u)
 void dg_sd_image_keys(char *out, size_t size, const char *dir, const dg_sd_entry_t *e,
                       int outcome);
 
 /*
- * The keys of the first bad image: "bad_path=<dir>/<name> bad_rc=<outcome>",
- * encoded, then "bad_fs_rc=<code>" for DG_SDF_OPEN.
+ * The short keys of the first bad image: "bad_rc=<outcome>", then
+ * "bad_fs_rc=<code>" for DG_SDF_OPEN. Its path goes last in the result
+ * keys, as "bad_path", through dg_keys_text(): see dg_sd_path().
  */
-void dg_sd_bad_keys(char *out, size_t size, const char *dir, const dg_sd_scan_t *s);
+#define DG_SD_BAD_KEYS_SIZE (DG_STR_LEN("bad_rc=") + DG_SD_RC_SIZE - 1u + DG_KEY_INT("bad_fs_rc") + 1u)
+void dg_sd_bad_keys(char *out, size_t size, const dg_sd_scan_t *s);
+
+/* "<dir>/<name>" into out of DG_TEXT_RAW_SIZE, raw, for dg_keys_text(). */
+const char *dg_sd_path(char out[DG_TEXT_RAW_SIZE], const char *dir, const char *name);
 
 /* The file column of a screen row: names longer than this end in "...". */
 #define DG_SD_NAME_COLS 12u

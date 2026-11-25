@@ -63,16 +63,20 @@ static int op_check(void *ctx, dg_sd_entry_t *e)
     return dg_sd_check_image(path, e->size, c->name, &c->subtype, &e->fs_rc);
 }
 
+/* An image marker holds every key whole. */
+_Static_assert(MT_MARK_SIZE >= DG_STR_LEN("image ") + DG_SD_IMAGE_KEYS_SIZE, "image marker");
+
 static void op_report(void *ctx, const dg_sd_entry_t *e, int out)
 {
     scan_ctx_t *c = ctx;
+    char keys[DG_SD_IMAGE_KEYS_SIZE];
     char line[MT_LINE_MAX];
 
     if (out == DG_SDF_OTHER) {
         return;
     }
-    dg_sd_image_keys(line, sizeof(line), DIR_PATH, e, out);
-    mt_mark("image %s", line);
+    dg_sd_image_keys(keys, sizeof(keys), DIR_PATH, e, out);
+    mt_mark("image %s", keys);
     dg_sd_row(line, sizeof(line), e, out, c->name, c->subtype);
     mt_work_line(c->row++, line, 1);
 }
@@ -92,7 +96,8 @@ void mt_tool_images(mt_run_t *r)
     const dg_sd_ops_t ops = { &sc, op_opendir, op_readdir, op_closedir, op_check, op_report,
                               op_abort };
     static dg_sd_scan_t s;
-    char keys[MT_KEYS_MAX];
+    char keys[DG_SD_BAD_KEYS_SIZE];
+    char path[DG_TEXT_RAW_SIZE];
     char name[DG_SD_NAME_COLS + 1];
     int rc;
 
@@ -112,8 +117,9 @@ void mt_tool_images(mt_run_t *r)
     }
     mt_keys(r, "images=%u bad=%u", s.images, s.bad);
     if (s.bad != 0) {
-        dg_sd_bad_keys(keys, sizeof(keys), DIR_PATH, &s);
+        dg_sd_bad_keys(keys, sizeof(keys), &s);
         mt_keys(r, "%s", keys);
+        mt_keys_last(r, "bad_path", dg_sd_path(path, DIR_PATH, s.bad_name));
     }
     if (rc == DG_SD_SCAN_ABORT) {
         r->result = MT_FAIL;

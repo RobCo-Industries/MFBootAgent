@@ -58,7 +58,7 @@ int dg_counts_result(const dg_counts_t *c, int stopped);
 #define DG_LINE_MAX     128u
 /* The detail text of a result on the screen. */
 #define DG_TEXT_MAX     64u
-/* The test keys of a result marker: room for two encoded values of DG_MVAL_SIZE. */
+/* The test keys of a result marker: its short keys, then one encoded text. */
 #define DG_KEYS_MAX     448u
 
 /*
@@ -261,6 +261,59 @@ void dg_keys_add(char *buf, size_t size, const char *fmt, va_list ap);
 #define DG_MVAL_SIZE    128u
 /* Encodes `in` into out, of size at least 4, and returns out. */
 const char *dg_mval(char *out, size_t size, const char *in);
+
+/* ---- Marker sizes ---- */
+
+/*
+ * The one rule of every marker with text from the card:
+ *   - the short keys come first: rc, fs_rc, result, why, counts;
+ *   - the one encoded text comes last, so a cut can only shorten it;
+ *   - a cut is marked: a lone '%' ends a cut text, DG_KEYS_CUT ends keys
+ *     that lost a key;
+ *   - buffers are sized from these constants, and a _Static_assert ties
+ *     each one to the longest text it can get.
+ */
+#define DG_STR_LEN(s)       (sizeof(s) - 1u)
+#define DG_INT_CHARS        11u     /* "-2147483648" */
+#define DG_UINT_CHARS       10u     /* "4294967295" */
+#define DG_MVAL_MAX         (DG_MVAL_SIZE - 1u)
+/* " <key>=" and a number or an encoded text: the most a key adds. */
+#define DG_KEY_INT(key)     (DG_STR_LEN(" " key "=") + DG_INT_CHARS)
+#define DG_KEY_UINT(key)    (DG_STR_LEN(" " key "=") + DG_UINT_CHARS)
+#define DG_KEY_TEXT(key)    (DG_STR_LEN(" " key "=") + DG_MVAL_MAX)
+/*
+ * Raw text for dg_keys_text(): one byte more than an encoded value holds,
+ * so a text cut to this size still encodes past DG_MVAL_MAX and dg_mval()
+ * marks the cut.
+ */
+#define DG_TEXT_RAW_SIZE    (DG_MVAL_SIZE + 1u)
+
+/*
+ * Appends " <key>=<text>" to the keys in buf of `size` bytes, the text
+ * encoded by dg_mval() into the room left: a text cut there ends with a
+ * lone '%'. When not even "<key>=" and one escape fit, DG_KEYS_CUT ends
+ * the keys, if it fits. Keys that already end with DG_KEYS_CUT stay.
+ * The text key goes last.
+ */
+void dg_keys_text(char *buf, size_t size, const char *key, const char *text);
+
+/*
+ * A marker line formatted into buf of `size` bytes, `len` the length
+ * k_vsnprintf() returned. A line that did not fit loses whole keys from
+ * its end, and DG_KEYS_CUT ends it. The sizes make this a backstop:
+ * no marker reaches it.
+ */
+void dg_mark_fit(char *buf, size_t size, int len);
+
+/*
+ * One marker after "ev=". k_printf() streams it to the console and the
+ * UART byte by byte with no buffer of its own, so this buffer is the
+ * only limit of a marker line. It holds the result marker with the
+ * longest name and result, and every key.
+ */
+#define DG_MARK_SIZE        (DG_LINE_MAX + DG_KEYS_MAX)
+#define DG_DIAG_HEAD_MAX    DG_STR_LEN("diag name=expander result=skipped ")
+_Static_assert(DG_MARK_SIZE >= DG_DIAG_HEAD_MAX + DG_KEYS_MAX, "diag marker buffer");
 
 /*
  * A name for a screen field of `width` columns, 4 or more: bytes 0x20 to

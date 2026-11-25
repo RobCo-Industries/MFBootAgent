@@ -209,7 +209,7 @@ The stage name is `diag`. Each line starts with `@RC stage=diag`.
 | `diag` | `name result`, then the test keys below |
 | `diag_done` | `ok fail absent skipped` |
 | `diag_progress` | `name step pct`, at most one per 500 ms |
-| `sd_image` | `path size rc`. `path`, like `bad_path` in `sd`, is encoded as [MAINT.md](MAINT.md#marker-values) states, so `/ROBCO/My Image.SYS` gives `path=/ROBCO/My%20Image.SYS`. |
+| `sd_image` | `rc size`, then `fs_rc` with `rc=open`, then `path`. `path`, like `bad_path` in `sd`, is encoded as [MAINT.md](MAINT.md#marker-values) states, so `/ROBCO/My Image.SYS` gives `path=/ROBCO/My%20Image.SYS`. |
 | `video_pattern` | `name width height` |
 | `input_view` | `state gpio idle_ms` |
 | `input_event` | `source type code value` |
@@ -225,7 +225,7 @@ The stage name is `diag`. Each line starts with `@RC stage=diag`.
 | Test | Keys after `result` |
 |---|---|
 | `mem` | `ranges start end bytes patterns ms flushed cache`. A fault: `pattern addr expected found bytes`. |
-| `sd` | `probe_rc` in the test build after `sdwrite`, `card mid oid pnm psn blocks vol_lba vol_blocks read sampled chunk_errors errors`, `first_bad` on an error, `ms kib_s files images bad_images others`, `bad_path bad_rc` for the first bad image, with `bad_fs_rc` when it is `open`, `dir_rc` on a directory error, `writes`. No `/ROBCO`: `files=0 dir=missing` in place of the file keys. No card: `why=init rc`. |
+| `sd` | `probe_rc` in the test build after `sdwrite`, `card mid oid pnm psn blocks vol_lba vol_blocks read sampled chunk_errors errors`, `first_bad` on an error, `ms kib_s files images bad_images others`, `dir_rc` on a directory error, `bad_rc` for the first bad image, with `bad_fs_rc` when it is `open`, `writes`, then `bad_path` last. No `/ROBCO`: `files=0 dir=missing` in place of the file keys. No card: `why=init rc`. |
 | `video` | `width height depth pitch order patterns judge=person` |
 | `audio` | `backend probe init tones notes`. No PWM found: `why=no_pwm output=none`. A PWM that fell back: `why=pwm_failed`. |
 | `input` | `events why gpio`. `why` is `back2`, `long` or `idle`. |
@@ -234,7 +234,7 @@ The stage name is `diag`. Each line starts with `@RC stage=diag`.
 | `rtc` | `addr chip halted time` |
 | `expander` | `x0 in0 out0 pol0 cfg0`, `x0=absent` or `x0=error rc0`, the same for chip 1, `attach0=error rc0` when the attach failed, the same for chip 1, `view` after the live view, and `errors` when a read failed |
 
-A result marker whose keys do not fit their buffer drops the key that does not fit and ends with `keys_cut=1`. Room for it is always kept, so a short marker never looks whole.
+A marker never hides its result. The short keys come first and the one key with text from the card comes last, so a cut can only shorten that text, and the cut is marked: a lone `%` ends a cut text, `keys_cut=1` marks keys that lost a key. `sd_image` holds every key whole. [MAINT.md](MAINT.md#marker-length) gives the rule of both images and the limit of a marker line, `DG_MARK_SIZE`, 576 bytes after `ev=`.
 
 ## Known limits
 

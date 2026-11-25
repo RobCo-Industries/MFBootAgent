@@ -259,35 +259,35 @@ int dg_sd_cid_blank(const uint32_t cid[4])
            cid[3] == 0xffffff00u;
 }
 
-/* "<dir>/<name>" encoded into out, of DG_MVAL_SIZE. */
-static const char *enc_path(char out[DG_MVAL_SIZE], const char *dir, const char *name)
+const char *dg_sd_path(char out[DG_TEXT_RAW_SIZE], const char *dir, const char *name)
 {
-    char path[DG_SD_NAME_MAX + 16];
-
-    k_snprintf(path, sizeof(path), "%s/%s", dir, name != NULL ? name : "");
-    return dg_mval(out, DG_MVAL_SIZE, path);
+    k_snprintf(out, DG_TEXT_RAW_SIZE, "%s/%s", dir, name != NULL ? name : "");
+    return out;
 }
 
 void dg_sd_image_keys(char *out, size_t size, const char *dir, const dg_sd_entry_t *e,
                       int outcome)
 {
-    char path[DG_MVAL_SIZE];
-    char rc[DG_MVAL_SIZE];
+    char rc[DG_SD_RC_SIZE];
+    char path[DG_TEXT_RAW_SIZE];
 
-    int n = k_snprintf(out, size, "path=%s size=%u rc=%s", enc_path(path, dir, e->name),
-                       (unsigned)e->size, dg_mval(rc, sizeof(rc), dg_sd_outcome_name(outcome)));
-
-    if (outcome == DG_SDF_OPEN && n >= 0 && (size_t)n < size) {
-        k_snprintf(out + n, size - (size_t)n, " fs_rc=%d", e->fs_rc);
+    if (size == 0) {
+        return;
     }
+    k_snprintf(out, size, "rc=%s size=%u", dg_mval(rc, sizeof(rc), dg_sd_outcome_name(outcome)),
+               (unsigned)e->size);
+    if (outcome == DG_SDF_OPEN) {
+        size_t n = k_strlen(out);
+
+        k_snprintf(out + n, size - n, " fs_rc=%d", e->fs_rc);
+    }
+    dg_keys_text(out, size, "path", dg_sd_path(path, dir, e->name));
 }
 
-void dg_sd_bad_keys(char *out, size_t size, const char *dir, const dg_sd_scan_t *s)
+void dg_sd_bad_keys(char *out, size_t size, const dg_sd_scan_t *s)
 {
-    char path[DG_MVAL_SIZE];
-    char rc[DG_MVAL_SIZE];
-
-    int n = k_snprintf(out, size, "bad_path=%s bad_rc=%s", enc_path(path, dir, s->bad_name),
+    char rc[DG_SD_RC_SIZE];
+    int n = k_snprintf(out, size, "bad_rc=%s",
                        dg_mval(rc, sizeof(rc), dg_sd_outcome_name(s->first_bad)));
 
     if (s->first_bad == DG_SDF_OPEN && n >= 0 && (size_t)n < size) {

@@ -133,6 +133,9 @@ static int op_closedir(void *ctx)
     return fs_closedir(c->d);
 }
 
+/* An sd_image marker holds every key whole. */
+_Static_assert(DG_MARK_SIZE >= DG_STR_LEN("sd_image ") + DG_SD_IMAGE_KEYS_SIZE, "sd_image marker");
+
 /* One image file: dg_sd_check_image(), shared with the maintenance image. */
 static int op_check(void *ctx, dg_sd_entry_t *e)
 {
@@ -146,11 +149,12 @@ static int op_check(void *ctx, dg_sd_entry_t *e)
 static void op_report(void *ctx, const dg_sd_entry_t *e, int out)
 {
     scan_ctx_t *c = ctx;
+    char keys[DG_SD_IMAGE_KEYS_SIZE];
     char line[DG_LINE_MAX];
 
     if (out != DG_SDF_OTHER) {
-        dg_sd_image_keys(line, sizeof(line), DIR_PATH, e, out);
-        dg_mark("sd_image %s", line);
+        dg_sd_image_keys(keys, sizeof(keys), DIR_PATH, e, out);
+        dg_mark("sd_image %s", keys);
     }
     dg_sd_row(line, sizeof(line), e, out, c->name, c->subtype);
     dg_work_line(c->row++, line, 1);
@@ -183,14 +187,16 @@ static int check_files(dg_run_t *r, dg_sd_scan_t *s)
     }
     dg_keys(r, "files=%u images=%u bad_images=%u others=%u", s->files, s->images, s->bad,
             s->others);
-    if (s->bad != 0) {
-        char keys[DG_KEYS_MAX];
-
-        dg_sd_bad_keys(keys, sizeof(keys), DIR_PATH, s);
-        dg_keys(r, "%s", keys);
-    }
     if (rc == DG_SD_SCAN_DIRERR) {
         dg_keys(r, "dir_rc=%d", s->dir_rc);
+    }
+    if (s->bad != 0) {
+        char keys[DG_SD_BAD_KEYS_SIZE];
+        char path[DG_TEXT_RAW_SIZE];
+
+        dg_sd_bad_keys(keys, sizeof(keys), s);
+        dg_keys(r, "%s", keys);
+        dg_keys_last(r, "bad_path", dg_sd_path(path, DIR_PATH, s->bad_name));
     }
     return rc;
 }

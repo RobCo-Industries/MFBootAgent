@@ -115,10 +115,14 @@ static const char *rc_name(int what, int rc)
     return fs_strerror(rc);
 }
 
+/* A card_error marker holds every key whole. */
+_Static_assert(MT_MARK_SIZE >= DG_STR_LEN("card_error ") + MT_CARD_ERROR_KEYS_SIZE, "card_error marker");
+_Static_assert(MT_KEYS_MAX >= MT_CARD_FIRST_KEYS_SIZE, "first_what key");
+
 static void op_error(void *ctx, const char *path, int what, int rc)
 {
     walk_ctx_t *c = ctx;
-    char keys[MT_LINE_MAX];
+    char keys[MT_CARD_ERROR_KEYS_SIZE];
     char name[PATH_COLS + 1];
     char line[MT_LINE_MAX];
 
@@ -171,6 +175,7 @@ void mt_tool_card(mt_run_t *r)
     if (w.errors != 0) {
         mt_card_first_keys(keys, sizeof(keys), &w);
         mt_keys(r, "%s", keys);
+        mt_keys_last(r, "first_path", w.first_path);
     }
     mt_keys(r, "ms=%u", (unsigned)(timer_now_ms() - t0));
     mt_card_counts(line, sizeof(line), &w);

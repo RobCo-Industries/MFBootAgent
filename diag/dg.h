@@ -31,6 +31,8 @@ typedef struct {
     int result;                 /* DG_OK ... */
     char text[DG_TEXT_MAX];     /* short detail for the screen */
     char keys[DG_KEYS_MAX];     /* marker keys after result=, space separated */
+    const char *last_key;       /* the one text key, set by dg_keys_last(), or NULL */
+    char last_text[DG_TEXT_RAW_SIZE]; /* its raw text */
 } dg_run_t;
 
 typedef struct {
@@ -57,6 +59,12 @@ void dg_mark(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
 /* Appends to the marker keys of a run, with a space between keys. */
 void dg_keys(dg_run_t *r, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+/*
+ * Sets the one key of a run that carries text from the card. It goes
+ * after every other key, cut to the room left and marked: see
+ * dg_keys_text().
+ */
+void dg_keys_last(dg_run_t *r, const char *key, const char *text);
 /* Sets the screen detail of a run. */
 void dg_text(dg_run_t *r, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 

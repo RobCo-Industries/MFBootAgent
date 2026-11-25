@@ -586,17 +586,17 @@ TEST(open_failure_keeps_its_fs_code)
     CHECK_EQ(scan(&f, ents, 2, &s), DG_SD_SCAN_OK);
     CHECK_EQ(s.first_bad, DG_SDF_OPEN);
     CHECK_EQ(s.first_fs_rc, FS_ERR_CORRUPT);
-    dg_sd_bad_keys(line, sizeof(line), "/ROBCO", &s);
-    CHECK_STR(line, "bad_path=/ROBCO/BAD.SYS bad_rc=open bad_fs_rc=-17");
+    dg_sd_bad_keys(line, sizeof(line), &s);
+    CHECK_STR(line, "bad_rc=open bad_fs_rc=-17");
     memset(&e, 0, sizeof(e));
     e.name = "BAD.SYS";
     e.size = 2048;
     e.fs_rc = FS_ERR_IO;
     dg_sd_image_keys(line, sizeof(line), "/ROBCO", &e, DG_SDF_OPEN);
-    CHECK_STR(line, "path=/ROBCO/BAD.SYS size=2048 rc=open fs_rc=-1");
+    CHECK_STR(line, "rc=open size=2048 fs_rc=-1 path=/ROBCO/BAD.SYS");
     dg_sd_row(line, sizeof(line), &e, DG_SDF_OPEN, "", 0);
     CHECK_STR(line, "BAD.SYS          2048  FAILED  open, error -1");
     /* Other outcomes carry no fs code. */
     dg_sd_image_keys(line, sizeof(line), "/ROBCO", &e, DG_SDF_SHORT);
-    CHECK_STR(line, "path=/ROBCO/BAD.SYS size=2048 rc=short");
+    CHECK_STR(line, "rc=short size=2048 path=/ROBCO/BAD.SYS");
 }

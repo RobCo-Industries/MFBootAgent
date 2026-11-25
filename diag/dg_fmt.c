@@ -308,6 +308,45 @@ void dg_keys_add(char *buf, size_t size, const char *fmt, va_list ap)
     k_snprintf(buf + n, size - n, "%s" DG_KEYS_CUT, n != 0 ? " " : "");
 }
 
+void dg_keys_text(char *buf, size_t size, const char *key, const char *text)
+{
+    size_t n = k_strlen(buf);
+    size_t sep = n != 0 ? 1u : 0u;
+    size_t klen = k_strlen(key) + 1u;
+    size_t room;
+
+    if (keys_cut(buf, n)) {
+        return;
+    }
+    /* "<key>=" and room for 4 bytes: one escape, or "%" and the end. */
+    if (n + sep + klen + 4u > size) {
+        if (n + 1u + sizeof(DG_KEYS_CUT) <= size) {
+            k_snprintf(buf + n, size - n, "%s" DG_KEYS_CUT, sep != 0 ? " " : "");
+        }
+        return;
+    }
+    k_snprintf(buf + n, size - n, "%s%s=", sep != 0 ? " " : "", key);
+    n += sep + klen;
+    room = size - n;
+    (void)dg_mval(buf + n, room < DG_MVAL_SIZE ? room : DG_MVAL_SIZE, text);
+}
+
+void dg_mark_fit(char *buf, size_t size, int len)
+{
+    const size_t mark = 1u + DG_STR_LEN(DG_KEYS_CUT);
+    size_t n;
+
+    if (size == 0 || (len >= 0 && (size_t)len < size) || size <= mark + 1u) {
+        return;
+    }
+    /* Keep the whole keys that leave room for " keys_cut=1". */
+    n = size - 1u - mark;
+    while (n > 0 && buf[n] != ' ') {
+        n--;
+    }
+    k_snprintf(buf + n, size - n, " " DG_KEYS_CUT);
+}
+
 static int mval_plain(unsigned char c)
 {
     return c >= 0x21u && c <= 0x7eu && c != '%' && c != '=';

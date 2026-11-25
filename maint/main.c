@@ -77,12 +77,14 @@ static unsigned req_tool;
 
 void mt_mark(const char *fmt, ...)
 {
-    char buf[MT_LINE_MAX + MT_KEYS_MAX];
+    char buf[MT_MARK_SIZE];
     va_list ap;
+    int len;
 
     va_start(ap, fmt);
-    k_vsnprintf(buf, sizeof(buf), fmt, ap);
+    len = k_vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
+    dg_mark_fit(buf, sizeof(buf), len);
     k_printf("@RC stage=" ROBCO_STAGE_NAME " ev=%s\n", buf);
 }
 
@@ -91,8 +93,15 @@ void mt_keys(mt_run_t *r, const char *fmt, ...)
     va_list ap;
 
     va_start(ap, fmt);
-    dg_keys_add(r->keys, sizeof(r->keys), fmt, ap);
+    dg_keys_add(r->keys, r->keys_room != 0 ? r->keys_room : sizeof(r->keys), fmt, ap);
     va_end(ap);
+}
+
+void mt_keys_last(mt_run_t *r, const char *key, const char *text)
+{
+    r->last_key = key;
+    k_strncpy(r->last_text, text, sizeof(r->last_text));
+    r->last_text[sizeof(r->last_text) - 1] = '\0';
 }
 
 void mt_text(mt_run_t *r, const char *fmt, ...)
@@ -309,7 +318,7 @@ static void reboot(const char *source);
  */
 static void tool_restart(mt_run_t *r)
 {
-    char line[MT_LINE_MAX + MT_KEYS_MAX];
+    char line[MT_MARK_SIZE];
 
     r->result = MT_OK;
     mt_line_tool(line, sizeof(line), MT_T_RESTART, MT_OK, "");
@@ -327,11 +336,13 @@ static const tool_fn tools[MT_TOOLS] = {
 static void run_tool(unsigned t)
 {
     static mt_run_t r;
-    char line[MT_LINE_MAX + MT_KEYS_MAX];
+    char line[MT_MARK_SIZE];
     int ro = mt_tool_readonly(t);
 
     k_memset(&r, 0, sizeof(r));
     r.result = MT_FAIL;
+    /* A read-only tool leaves room for writes=, so it always shows. */
+    r.keys_room = ro ? sizeof(r.keys) - MT_WRITES_KEY : sizeof(r.keys);
     mt.phase = MT_PHASE_TOOL;
     mt.tool = (int)t;
     mt_work_clear();
@@ -350,8 +361,15 @@ static void run_tool(unsigned t)
 #endif
     tools[t](&r);
     mt.guard.pass = 0;
+    if (r.last_key != NULL) {
+        dg_keys_text(r.keys, r.keys_room, r.last_key, r.last_text);
+    }
     if (ro) {
-        mt_keys(&r, "writes=%u", (unsigned)mt.guard.writes);
+        size_t n = k_strlen(r.keys);
+
+        /* Past keys_room, even after keys_cut=1: the count is never lost. */
+        k_snprintf(r.keys + n, sizeof(r.keys) - n, "%swrites=%u", n != 0 ? " " : "",
+                   (unsigned)mt.guard.writes);
         if (mt.guard.writes != 0) {
             r.result = MT_FAIL;
             mt_text(&r, "%u writes refused.", (unsigned)mt.guard.writes);

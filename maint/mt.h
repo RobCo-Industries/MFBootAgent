@@ -31,6 +31,9 @@ typedef struct {
     int result;                 /* MT_OK ... */
     char text[MT_TEXT_MAX];     /* short detail for the screen */
     char keys[MT_KEYS_MAX];     /* marker keys after result=, space separated */
+    size_t keys_room;           /* bytes of keys the tool may fill: the rest is for writes= */
+    const char *last_key;       /* the one text key, set by mt_keys_last(), or NULL */
+    char last_text[DG_TEXT_RAW_SIZE]; /* its raw text */
 } mt_run_t;
 
 typedef struct {
@@ -56,6 +59,12 @@ void mt_mark(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
 /* Appends to the marker keys of a run, with a space between keys. */
 void mt_keys(mt_run_t *r, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+/*
+ * Sets the one key of a run that carries text from the card. It goes
+ * after the tool's other keys, cut to the room left and marked: see
+ * dg_keys_text(). Only writes= of a read-only tool follows it.
+ */
+void mt_keys_last(mt_run_t *r, const char *key, const char *text);
 /* Sets the screen detail of a run. */
 void mt_text(mt_run_t *r, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 

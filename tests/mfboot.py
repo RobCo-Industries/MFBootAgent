@@ -79,6 +79,13 @@ def order(vm, stage="bootagent"):
     return [m["ev"] for m in vm.markers() if m.get("stage") == stage]
 
 
+# The longest name the card helper writes, 255 bytes, almost all of them
+# '%' or ' ', which dg_mval() escapes. mcopy turns '=' into '_', so the
+# name has none.
+LONG_NAME = "L" + "% " * 124 + "XX.SYS"
+assert len(LONG_NAME) == 255
+
+
 def mval(value):
     """Decodes a marker value of dg_mval(): each %XX is one byte, "%00" alone is
     empty. Returns (text, cut): cut is True for a value that ends in a lone '%'."""
