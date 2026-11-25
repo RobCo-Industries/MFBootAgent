@@ -420,6 +420,10 @@ static int command(int argc, char *argv[], input_script_reply_t *reply, void *ct
         dg.fault_addr = a & ~3u;
         return 0;
     }
+    if (k_strcmp(argv[0], "sdwrite") == 0 && argc == 1) {
+        dg.sd_probe_write = 1;
+        return 0;
+    }
 #endif
     reply->reason = "unknown command";
     return -1;
@@ -541,6 +545,7 @@ static void entry(void)
     dg_mark("selfcheck rc=%s size=%u", rimg_strerror(self), (unsigned)robco_rimg.file_size);
 #ifdef DG_TEST
     dg_mark("fault_hook name=mem");
+    dg_mark("write_hook name=sd");
 #endif
 }
 

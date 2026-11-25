@@ -175,3 +175,33 @@ int dg_sd_scan(const dg_sd_ops_t *ops, int noent_rc, dg_sd_scan_t *s)
     (void)ops->closedir(ops->ctx);
     return result;
 }
+
+static int guard_read(blk_dev_t *dev, uint64_t lba, uint32_t count, void *out)
+{
+    dg_sd_guard_t *g = (dg_sd_guard_t *)dev->priv;
+
+    return blk_read(g->card, lba, count, out);
+}
+
+static int guard_write(blk_dev_t *dev, uint64_t lba, uint32_t count, const void *in)
+{
+    dg_sd_guard_t *g = (dg_sd_guard_t *)dev->priv;
+
+    (void)lba;
+    (void)count;
+    (void)in;
+    g->writes++;
+    return BLK_ERR_RO;
+}
+
+void dg_sd_guard_init(dg_sd_guard_t *g, blk_dev_t *card)
+{
+    k_memset(g, 0, sizeof(*g));
+    g->card = card;
+    g->dev = *card;
+    g->dev.flags &= ~BLK_FLAG_READONLY;
+    g->dev.read = guard_read;
+    g->dev.write = guard_write;
+    g->dev.sync = 0;
+    g->dev.priv = g;
+}

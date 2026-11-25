@@ -7,7 +7,8 @@ import struct
 import pytest
 
 import mfboot
-from diag import (TIMEOUT, alone, diag_image, dump, events, good_card, run)  # noqa: F401
+from diag import (TIMEOUT, alone, command, diag_image, diag_test_image, dump, events,  # noqa: F401
+                  good_card, one, run)
 from harness.sdimage import PART_LBA, SECTOR, corrupt, make_sd_image
 
 
@@ -36,6 +37,20 @@ def test_good_card(board, diag_image, good_card):
         assert all(x["rc"] == "ok" for x in found.values()), found
         _, rows = dump(vm)
         assert any(r.startswith("DIAG.SYS") and " OK      DIAG subtype 3" in r for r in rows), rows
+    assert digest(good_card) == before
+
+
+def test_write_attempt_is_counted_and_refused(board, diag_test_image, good_card):
+    """The test build sends one write through the guard: counted, refused, card unchanged."""
+    before = digest(good_card)
+    with alone(diag_test_image, board, sd=good_card) as vm:
+        assert one(vm, "write_hook")["name"] == "sd"
+        m = run(vm, "sd")
+        assert (m["result"], m["writes"]) == ("ok", "0"), m
+        command(vm, "sdwrite")
+        m = run(vm, "sd")
+        assert m["result"] == "fail", vm.serial
+        assert (m["probe_rc"], m["writes"]) == ("-5", "1"), m
     assert digest(good_card) == before
 
 

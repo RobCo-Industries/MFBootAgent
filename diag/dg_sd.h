@@ -13,6 +13,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <robco/blk.h>
+
 #define DG_SD_CHUNK     64u         /* blocks per read, 32 KiB */
 #define DG_SD_FULL_MAX  65536u      /* blocks: 32 MiB */
 #define DG_SD_SAMPLES   1024u       /* chunks when the volume is larger */
@@ -116,5 +118,22 @@ typedef struct {
  * is the opendir code for a missing directory. Returns DG_SD_SCAN_*.
  */
 int dg_sd_scan(const dg_sd_ops_t *ops, int noent_rc, dg_sd_scan_t *s);
+
+/*
+ * The write guard in front of the card. blk_write() refuses a device
+ * flagged BLK_FLAG_READONLY before it calls the write function, so such
+ * a device can never count an attempt. The guard device carries no
+ * read-only flag: blk_write() reaches its write function, which counts
+ * the attempt in `writes` and returns BLK_ERR_RO. It never calls the
+ * card's write function. Reads go to the card.
+ */
+typedef struct {
+    blk_dev_t dev;      /* mount this one */
+    blk_dev_t *card;    /* the real device, never written */
+    uint32_t writes;    /* write attempts refused */
+} dg_sd_guard_t;
+
+/* Builds the guard over card with writes at 0. */
+void dg_sd_guard_init(dg_sd_guard_t *g, blk_dev_t *card);
 
 #endif

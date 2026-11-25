@@ -106,6 +106,65 @@ TEST(bad_arguments)
 
 /* ---- The file rule and the scan of /ROBCO ---------------------------- */
 
+/* A fake card that records every call that reaches it. */
+static unsigned card_reads;
+static unsigned card_writes;
+
+static int card_read(blk_dev_t *dev, uint64_t lba, uint32_t count, void *out)
+{
+    (void)dev;
+    (void)lba;
+    memset(out, 0x5a, count * BLK_SECTOR_SIZE);
+    card_reads++;
+    return 0;
+}
+
+static int card_write(blk_dev_t *dev, uint64_t lba, uint32_t count, const void *in)
+{
+    (void)dev;
+    (void)lba;
+    (void)count;
+    (void)in;
+    card_writes++;
+    return 0;
+}
+
+TEST(guard_counts_and_refuses_writes)
+{
+    blk_dev_t card = { "sd0", BLK_SECTOR_SIZE, 1000, BLK_FLAG_REMOVABLE, card_read, card_write,
+                       0, 0 };
+    dg_sd_guard_t g;
+    uint8_t b[BLK_SECTOR_SIZE];
+
+    card_reads = 0;
+    card_writes = 0;
+    dg_sd_guard_init(&g, &card);
+    CHECK_EQ(g.writes, 0);
+    CHECK_EQ(g.dev.flags & BLK_FLAG_READONLY, 0);
+    CHECK_EQ(g.dev.flags & BLK_FLAG_REMOVABLE, BLK_FLAG_REMOVABLE);
+    CHECK_EQ(g.dev.block_count, 1000);
+    /* The attempt reaches the counter through blk_write() and is refused. */
+    CHECK_EQ(blk_write(&g.dev, 5, 1, b), BLK_ERR_RO);
+    CHECK_EQ(blk_write(&g.dev, 6, 2, b), BLK_ERR_RO);
+    CHECK_EQ(g.writes, 2);
+    CHECK_EQ(card_writes, 0);
+    /* Out of range: blk_check() refuses it before the guard sees it. */
+    CHECK_EQ(blk_write(&g.dev, 1000, 1, b), BLK_ERR_RANGE);
+    CHECK_EQ(g.writes, 2);
+    /* Reads reach the card. */
+    CHECK_EQ(blk_read(&g.dev, 7, 1, b), 0);
+    CHECK_EQ(card_reads, 1);
+    CHECK_EQ(b[0], 0x5a);
+    CHECK_EQ(blk_sync(&g.dev), 0);
+    CHECK_EQ(card_writes, 0);
+    /* A card flagged read-only still gives a guard the counter can be reached through. */
+    card.flags |= BLK_FLAG_READONLY;
+    dg_sd_guard_init(&g, &card);
+    CHECK_EQ(blk_write(&g.dev, 5, 1, b), BLK_ERR_RO);
+    CHECK_EQ(g.writes, 1);
+    CHECK_EQ(card_writes, 0);
+}
+
 TEST(image_names)
 {
     CHECK_EQ(dg_sd_image_name("UOS.SYS"), 1);

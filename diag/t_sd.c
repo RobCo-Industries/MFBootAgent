@@ -1,7 +1,7 @@
 /*
- * The SD test. Read only: the card is reached through a copy of its
- * block device that is flagged read-only and whose write function only
- * counts the attempt, so nothing on the card can change. It reads the
+ * The SD test. Read only: the card is reached through the write guard
+ * of dg_sd.h, whose write function counts the attempt and refuses it,
+ * so nothing on the card can change. It reads the
  * card identity, the blocks of the boot volume by the plan of dg_sd.h,
  * then checks every file of /ROBCO by the rule of dg_sd.h.
  */
@@ -25,29 +25,12 @@
 #define FILE_MAX (16u << 20)
 
 static blk_dev_t *card;
-static blk_dev_t ro;
-static unsigned writes;
+static dg_sd_guard_t guard;
 static uint64_t read_total;     /* blocks the last read_blocks() read */
 static fs_boot_t vol;
 static uint8_t buf[DG_SD_CHUNK * BLK_SECTOR_SIZE] __attribute__((aligned(64)));
 
 static const char *const markers[] = { "/ROBCO/BOOT.CFG", "/ROBCO/UOS.SYS", "/ROBCO/DIAG.SYS" };
-
-static int ro_read(blk_dev_t *dev, uint64_t lba, uint32_t count, void *out)
-{
-    (void)dev;
-    return card->read(card, lba, count, out);
-}
-
-static int ro_write(blk_dev_t *dev, uint64_t lba, uint32_t count, const void *in)
-{
-    (void)dev;
-    (void)lba;
-    (void)count;
-    (void)in;
-    writes++;
-    return BLK_ERR_RO;
-}
 
 /* A printable copy of a short ID string: anything else becomes '_'. */
 static void clean(char *out, size_t size, const char *in, size_t n)
@@ -86,12 +69,12 @@ static int read_blocks(dg_run_t *r, uint32_t *errors)
     dg_rate_init(&rate, DG_PROGRESS_MS);
     for (i = 0; i < plan.chunks; i++) {
         (void)dg_sd_chunk(&plan, i, &lba, &count);
-        if (blk_read(&ro, lba, count, buf) != 0) {
+        if (blk_read(&guard.dev, lba, count, buf) != 0) {
             uint32_t k;
 
             /* Find the bad blocks of the chunk one by one. */
             for (k = 0; k < count; k++) {
-                if (blk_read(&ro, lba + k, 1, buf) != 0) {
+                if (blk_read(&guard.dev, lba + k, 1, buf) != 0) {
                     if (*errors == 0) {
                         first_bad = lba + k;
                     }
@@ -276,7 +259,7 @@ void dg_test_sd(dg_run_t *r)
     int scan = DG_SD_SCAN_OK;
     int rc = sd_init();
 
-    writes = 0;
+    guard.writes = 0;
     if (rc != 0) {
         r->result = rc == SD_ERR_NOCARD ? DG_ABSENT : DG_FAIL;
         dg_keys(r, "why=init rc=%d", rc);
@@ -284,11 +267,13 @@ void dg_test_sd(dg_run_t *r)
         return;
     }
     card = sd_blkdev();
-    ro = *card;
-    ro.flags |= BLK_FLAG_READONLY;
-    ro.read = ro_read;
-    ro.write = ro_write;
-    ro.sync = 0;
+    dg_sd_guard_init(&guard, card);
+#ifdef DG_TEST
+    /* Test builds: prove the counter is reachable through blk_write(). */
+    if (dg.sd_probe_write) {
+        dg_keys(r, "probe_rc=%d", blk_write(&guard.dev, 0, 1, buf));
+    }
+#endif
     info = sd_info();
     clean(oid, sizeof(oid), info->oid, sizeof(info->oid));
     clean(pnm, sizeof(pnm), info->pnm, sizeof(info->pnm));
@@ -299,10 +284,10 @@ void dg_test_sd(dg_run_t *r)
                info->type == SD_TYPE_SDHC ? "SDHC" : "SDSC", pnm,
                (unsigned)(info->capacity_blocks >> 11), (unsigned)info->psn);
     dg_work_line(0, line, 1);
-    rc = fs_mount_boot("sd", &ro, markers, sizeof(markers) / sizeof(markers[0]), &vol);
+    rc = fs_mount_boot("sd", &guard.dev, markers, sizeof(markers) / sizeof(markers[0]), &vol);
     if (rc != PART_BOOT_OK) {
         r->result = DG_FAIL;
-        dg_keys(r, "why=mount rc=%d writes=%u", rc, writes);
+        dg_keys(r, "why=mount rc=%d writes=%u", rc, (unsigned)guard.writes);
         dg_text(r, DG_TX_SD_NOVOL);
         return;
     }
@@ -310,13 +295,13 @@ void dg_test_sd(dg_run_t *r)
     if (read_blocks(r, &errors) || (scan = check_files(r, &sc)) == DG_SD_SCAN_ABORT) {
         (void)fs_unmount("sd");
         r->result = DG_SKIPPED;
-        dg_keys(r, "why=abort writes=%u", writes);
+        dg_keys(r, "why=abort writes=%u", (unsigned)guard.writes);
         dg_text(r, DG_TX_STOPPED);
         return;
     }
     (void)fs_unmount("sd");
-    dg_keys(r, "writes=%u", writes);
-    r->result = errors == 0 && sc.bad == 0 && writes == 0 && scan == DG_SD_SCAN_OK ?
+    dg_keys(r, "writes=%u", (unsigned)guard.writes);
+    r->result = errors == 0 && sc.bad == 0 && guard.writes == 0 && scan == DG_SD_SCAN_OK ?
                 DG_OK : DG_FAIL;
     if (errors != 0) {
         dg_text(r, DG_TX_SD_BLOCKS, (unsigned)errors, (unsigned)read_total);
@@ -326,8 +311,8 @@ void dg_test_sd(dg_run_t *r)
         dg_text(r, DG_TX_SD_DIRERR, sc.dir_rc);
     } else if (sc.bad != 0) {
         dg_text(r, DG_TX_SD_BAD, sc.bad_name, dg_sd_outcome_name(sc.first_bad));
-    } else if (writes != 0) {
-        dg_text(r, DG_TX_SD_WRITES, writes);
+    } else if (guard.writes != 0) {
+        dg_text(r, DG_TX_SD_WRITES, (unsigned)guard.writes);
     } else {
         dg_text(r, DG_TX_SD_OK, (unsigned)read_total, sc.images);
     }
