@@ -93,7 +93,8 @@ TEST(why_names)
     CHECK_STR(mfb_why_name(MFB_WHY_BUTTON), "button");
     CHECK_STR(mfb_why_name(MFB_WHY_PORT), "port");
     CHECK_STR(mfb_why_name(MFB_WHY_FLAG), "flag");
-    CHECK_STR(mfb_why_name(4), "unknown");
+    CHECK_STR(mfb_why_name(MFB_WHY_REQUEST), "request");
+    CHECK_STR(mfb_why_name(5), "unknown");
     CHECK_STR(mfb_why_name(-1), "unknown");
 }
 

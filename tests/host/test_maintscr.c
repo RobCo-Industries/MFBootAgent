@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "keymap.h"
+#include "maintreq.h"
 #include "maintscr.h"
 #include "menulines.h"
 #include "rc_test.h"
@@ -42,7 +43,7 @@ TEST(every_key_on_every_action)
             int key = all_keys[k];
             int act;
 
-            mfb_ms_init(&s);
+            mfb_ms_init(&s, 0);
             s.sel = sel;
             s.drawn_sel = sel;
             act = mfb_ms_key(&s, key, &item);
@@ -83,12 +84,54 @@ TEST(every_key_on_every_action)
     }
 }
 
+TEST(skip_back_drops_only_the_first_back)
+{
+    unsigned item = 99;
+
+    mfb_ms_init(&s, 1);
+    CHECK_EQ(mfb_ms_key(&s, MFB_K_DOWN, &item), MFB_MS_ACT_NONE);
+    CHECK_EQ(s.skip_back, 1);
+    CHECK_EQ(mfb_ms_key(&s, MFB_K_BACK, &item), MFB_MS_ACT_NONE);
+    CHECK_EQ(s.skip_back, 0);
+    CHECK_EQ(mfb_ms_key(&s, MFB_K_BACK, &item), MFB_MS_ACT_CLOSE);
+    /* Q still closes while the skip waits. */
+    mfb_ms_init(&s, 1);
+    CHECK_EQ(mfb_ms_key(&s, MFB_K_QUIT, &item), MFB_MS_ACT_CLOSE);
+    mfb_ms_init(&s, 0);
+    CHECK_EQ(mfb_ms_key(&s, MFB_K_BACK, &item), MFB_MS_ACT_CLOSE);
+}
+
+TEST(request_rows)
+{
+    static mfb_ms_page_t page;
+    unsigned n, i;
+
+    n = mfb_ms_request(page, MFB_REQ_FOUND, 0, "");
+    CHECK_EQ(n, 1);
+    CHECK_STR(page[0], "MAINTENANCE REQUESTED");
+    n = mfb_ms_request(page, MFB_REQ_FOUND, 0, "OPER asked");
+    CHECK_EQ(n, 2);
+    CHECK_STR(page[1], "Request:      OPER asked");
+    n = mfb_ms_request(page, MFB_REQ_CLEAR_FAILED, -4, "");
+    CHECK_EQ(n, 3);
+    CHECK_STR(page[1], "NOTICE: /ROBCO/MAINT.REQ could not be deleted, code -4.");
+    CHECK_STR(page[2], "The request comes back at each start until the file is removed.");
+    /* The longest line fits: 14 columns of label and 63 of request. */
+    n = mfb_ms_request(page, MFB_REQ_CLEAR_FAILED, -22,
+                       "123456789012345678901234567890123456789012345678901234567890123");
+    CHECK_EQ(n, 4);
+    for (i = 0; i < n; i++) {
+        CHECK(strlen(page[i]) <= MFB_LINE_MAX - 1);
+    }
+    CHECK_EQ(strlen(page[1]), 14 + 63);
+}
+
 TEST(take_reports_the_drawn_action)
 {
     unsigned item = 0;
     unsigned old = 99;
 
-    mfb_ms_init(&s);
+    mfb_ms_init(&s, 0);
     CHECK_EQ(mfb_ms_take(&s, &old), 0);
     mfb_ms_key(&s, MFB_K_DOWN, &item);
     mfb_ms_key(&s, MFB_K_DOWN, &item);
@@ -113,6 +156,7 @@ TEST(names_and_fixed_rows)
     CHECK_STR(mfb_ms_name(MFB_MS_VERIFY), "verify");
     CHECK_STR(mfb_ms_name(MFB_MS_SYSTEM), "system");
     CHECK_STR(mfb_ms_name(MFB_MS_CONFIG), "config");
+    CHECK_STR(mfb_ms_name(MFB_MS_START), "start");
     CHECK_STR(mfb_ms_name(MFB_MS_REBOOT), "reboot");
     CHECK_STR(mfb_ms_name(MFB_MS_BACK), "back");
     CHECK_STR(mfb_ms_name(MFB_MS_ITEMS), "unknown");
@@ -126,6 +170,8 @@ TEST(names_and_fixed_rows)
     CHECK_STR(b, "  System");
     mfb_ms_item(b, sizeof(b), MFB_MS_CONFIG, 0);
     CHECK_STR(b, "  Configuration");
+    mfb_ms_item(b, sizeof(b), MFB_MS_START, 0);
+    CHECK_STR(b, "  Start the maintenance image");
     mfb_ms_item(b, sizeof(b), MFB_MS_REBOOT, 0);
     CHECK_STR(b, "  Reboot");
     mfb_ms_item(b, sizeof(b), MFB_MS_BACK, 1);

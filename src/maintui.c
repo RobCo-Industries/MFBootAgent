@@ -69,7 +69,6 @@ static void draw_all(void)
     uart_putc('\n');
     mfb_ms_title(line, sizeof(line), MFB_VERSION_STR);
     row(MFB_MS_ROW_TITLE, line, CONSOLE_ATTR_BRIGHT, 1);
-    row(MFB_MS_ROW_RULE, mfb_line_rule(), CONSOLE_ATTR_DIM, 1);
     for (i = 0; i < MFB_MS_ITEMS; i++) {
         draw_item(i, 1);
     }
@@ -166,7 +165,7 @@ void mfb_maint_run(int why)
     unsigned old = 0;
     int act;
 
-    mfb_ms_init(&ms);
+    mfb_ms_init(&ms, 0);
     top = mfb_place(MFB_MS_ROWS);
     draw_all();
     park_cursor();

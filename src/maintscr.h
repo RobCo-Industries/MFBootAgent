@@ -5,8 +5,7 @@
  *
  * The screen takes MFB_MS_ROWS rows, the minimum grid height:
  *   row 0      title
- *   row 1      rule
- *   rows 2-6   the actions, one per row
+ *   rows 1-6   the actions, one per row
  *   row 7      the keys
  *   rows 8-17  the output of the last action, MFB_MS_OUT_ROWS rows
  * Every line fits MFB_LINE_MAX - 1 columns, as the menu's do.
@@ -24,13 +23,13 @@
 #define MFB_MS_VERIFY   0
 #define MFB_MS_SYSTEM   1
 #define MFB_MS_CONFIG   2
-#define MFB_MS_REBOOT   3
-#define MFB_MS_BACK     4
-#define MFB_MS_ITEMS    5
+#define MFB_MS_START    3   /* start the maintenance image */
+#define MFB_MS_REBOOT   4
+#define MFB_MS_BACK     5
+#define MFB_MS_ITEMS    6
 
 #define MFB_MS_ROW_TITLE    0
-#define MFB_MS_ROW_RULE     1
-#define MFB_MS_ROW_ITEM0    2
+#define MFB_MS_ROW_ITEM0    1
 #define MFB_MS_ROW_HELP     (MFB_MS_ROW_ITEM0 + MFB_MS_ITEMS)
 #define MFB_MS_ROW_OUT0     (MFB_MS_ROW_HELP + 1)
 /* The verify table at its largest: a header, MFB_MAX_ENTRIES rows and the counts. */
@@ -39,30 +38,32 @@
 
 /* What the caller does next. */
 #define MFB_MS_ACT_NONE     0
-#define MFB_MS_ACT_RUN      1   /* run the action in *item: verify, system, config or reboot */
+#define MFB_MS_ACT_RUN      1   /* run the action in *item: verify, system, config, start or reboot */
 #define MFB_MS_ACT_CLOSE    2   /* back to the boot menu */
 
 typedef struct {
     unsigned sel;           /* selected action, MFB_MS_* */
     unsigned drawn_sel;     /* the action drawn as selected */
     int dirty;              /* the selection moved since the last mfb_ms_take() */
+    int skip_back;          /* the next BACK does nothing: mfb_start_skip_back() */
 } mfb_ms_t;
 
-/* Starts on the first action. */
-void mfb_ms_init(mfb_ms_t *s);
+/* Starts on the first action. skip_back: the first BACK key does nothing. */
+void mfb_ms_init(mfb_ms_t *s, int skip_back);
 
 /*
  * One MFB_K_* key. UP and DOWN move the bar and stop at the ends.
  * SELECT runs the selected action: MFB_MS_ACT_RUN with *item set, or
  * MFB_MS_ACT_CLOSE for "Back to the boot menu". BACK and QUIT close the
- * screen. Every other key does nothing.
+ * screen, except the first BACK when skip_back is set: it only clears
+ * skip_back. Every other key does nothing.
  */
 int mfb_ms_key(mfb_ms_t *s, int key, unsigned *item);
 
 /* 1 when the selection moved, and *old gets the action drawn as selected until now. */
 int mfb_ms_take(mfb_ms_t *s, unsigned *old);
 
-/* Marker name of an action: "verify", "system", "config", "reboot" or "back". */
+/* Marker name of an action: "verify", "system", "config", "start", "reboot" or "back". */
 const char *mfb_ms_name(unsigned item);
 
 /* The fixed rows. */
@@ -129,5 +130,13 @@ typedef struct {
 } mfb_ms_cfg_t;
 
 unsigned mfb_ms_config(mfb_ms_page_t page, const mfb_ms_cfg_t *c);
+
+/*
+ * The output rows the screen shows when a maintenance request opened
+ * it. `result` is MFB_REQ_FOUND or MFB_REQ_CLEAR_FAILED, `rc` the
+ * failed delete's code and `line` the request line, empty for none.
+ * Returns the line count.
+ */
+unsigned mfb_ms_request(mfb_ms_page_t page, int result, int rc, const char *line);
 
 #endif

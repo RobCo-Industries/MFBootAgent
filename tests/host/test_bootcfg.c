@@ -463,6 +463,24 @@ TEST(unknown_keys_and_sections)
     CHECK_EQ(rep.bad, 0);
 }
 
+TEST(maint_section_is_skipped_without_a_count)
+{
+    /* BOOT_PROTOCOL.md: MFBootAgent skips [maint] without a count, as [bios]. */
+    CHECK_EQ(parse("[maint]\nrestore_users = on\nother = 1\n[entry A]\npath = /A\n"
+                   "[MAINT]\nk = v\n"),
+             MFB_CFG_OK);
+    CHECK_EQ(cfg.count, 1);
+    CHECK_EQ(rep.unknown, 0);
+    CHECK_EQ(rep.bad, 0);
+    CHECK_EQ(rep.dup, 0);
+    CHECK_EQ(rep.ignored, 0);
+    /* [maint] keys never reach an entry. */
+    CHECK_STR(cfg.entry[0].cmdline, "");
+    CHECK_EQ(parse("[entry A]\npath = /A\n[maint]\npath = /B\n"), MFB_CFG_OK);
+    CHECK_STR(cfg.entry[0].path, "/A");
+    CHECK_EQ(rep.unknown, 0);
+}
+
 TEST(names_and_keys_ignore_case)
 {
     CHECK_EQ(parse("[BOOT]\nDEFAULT = b\nTimeout = 5\n[Entry b]\nPATH = /B\nCmdLine = q\n"),

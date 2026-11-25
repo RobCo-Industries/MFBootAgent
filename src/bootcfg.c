@@ -6,7 +6,7 @@
 /* Section kinds. */
 #define SEC_NONE    0   /* before any section, or an unknown one */
 #define SEC_BOOT    1
-#define SEC_BIOS    2   /* RETROS-BIOS reads it; MFBootAgent skips it */
+#define SEC_BIOS    2   /* [bios] or [maint]: another program reads it; MFBootAgent skips it */
 #define SEC_ENTRY   3   /* an [entry ...] header with a good, new name */
 #define SEC_SKIP    4   /* an [entry ...] header already counted as bad or dup */
 
@@ -225,7 +225,7 @@ static int on_section(const char *section, unsigned line, void *ctx)
         p->kind = SEC_BOOT;
         return 0;
     }
-    if (same_nocase(section, "bios")) {
+    if (same_nocase(section, "bios") || same_nocase(section, "maint")) {
         p->kind = SEC_BIOS;
         return 0;
     }

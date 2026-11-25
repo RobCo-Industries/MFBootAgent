@@ -41,8 +41,9 @@ int mfb_key_map(const input_event_t *ev);
 #define MFB_WHY_BUTTON  1   /* BACK on the buttons, or a BACK the port injected */
 #define MFB_WHY_PORT    2   /* the maint command on the maintenance port */
 #define MFB_WHY_FLAG    3   /* boot_flags bit 1 arrived set */
+#define MFB_WHY_REQUEST 4   /* the maintenance request file was found */
 
-/* "key", "button", "port" or "flag". "unknown" for other values. */
+/* "key", "button", "port", "flag" or "request". "unknown" for other values. */
 const char *mfb_why_name(int why);
 
 /*

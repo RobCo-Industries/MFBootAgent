@@ -31,6 +31,7 @@ PURE_SRCS  := \
               src/boot.c \
               src/bootcfg.c \
               src/keymap.c \
+              src/maintreq.c \
               src/maintscr.c \
               src/menu.c \
               src/menulines.c \
