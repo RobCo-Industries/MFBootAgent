@@ -366,6 +366,7 @@ static void worst_texts(void)
     T(DG_TX_SD_NOCARD);
     T(DG_TX_SD_NOSTART);
     T(DG_TX_SD_NOVOL);
+    T(DG_TX_SD_CID);
     T(DG_TX_SD_NODIR);
     T(DG_TX_SD_DIRERR, -99);
     T(DG_TX_SD_BLOCKS, 65536u, 1024u);

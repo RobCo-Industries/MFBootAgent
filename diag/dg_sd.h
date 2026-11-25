@@ -163,4 +163,11 @@ typedef struct {
 /* Builds the guard over card with writes and fail_multi at 0. */
 void dg_sd_guard_init(dg_sd_guard_t *g, blk_dev_t *card);
 
+/*
+ * The card identity: the raw CID as sd_info() keeps it, bits 127:8, all
+ * 0 or all 1. A card that answered CMD2 sends its own ID; a blank one
+ * means the bus read no data. Returns 1 for a blank CID.
+ */
+int dg_sd_cid_blank(const uint32_t cid[4]);
+
 #endif

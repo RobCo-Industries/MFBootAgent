@@ -199,6 +199,25 @@ def test_large_card_is_sampled(board, diag_image, test_os, need_mtools, tmp_path
         assert m["read"] == "65536", m
 
 
+def test_volume_past_the_card_fails(board, diag_image, good_card_files, need_mtools, tmp_path):
+    sd = tmp_path / "past.img"
+    make_sd_image(sd, 16, good_card_files)
+    # The partition entry claims one block more than the card holds.
+    with open(sd, "r+b") as f:
+        f.seek(446 + 12)
+        blocks = struct.unpack("<I", f.read(4))[0]
+        f.seek(446 + 12)
+        f.write(struct.pack("<I", blocks + 1))
+    with alone(diag_image, board, sd=sd) as vm:
+        m = run(vm, "sd")
+        # The library's mount refuses it before the block reads.
+        assert (m["result"], m["why"], m["blocks"], m["writes"]) == \
+            ("fail", "mount", "32768", "0"), m
+        state(vm)
+        _, rows = dump(vm)
+        assert rows[17] == "SD: FAILED. No boot volume.", rows
+
+
 def test_no_card(board, diag_image):
     with alone(diag_image, board) as vm:
         m = run(vm, "sd")

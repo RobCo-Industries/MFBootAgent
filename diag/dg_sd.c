@@ -240,3 +240,12 @@ void dg_sd_guard_init(dg_sd_guard_t *g, blk_dev_t *card)
     g->dev.sync = 0;
     g->dev.priv = g;
 }
+
+int dg_sd_cid_blank(const uint32_t cid[4])
+{
+    if (cid[0] == 0 && cid[1] == 0 && cid[2] == 0 && cid[3] == 0) {
+        return 1;
+    }
+    return cid[0] == 0xffffffffu && cid[1] == 0xffffffffu && cid[2] == 0xffffffffu &&
+           cid[3] == 0xffffff00u;
+}

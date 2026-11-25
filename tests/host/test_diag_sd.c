@@ -549,3 +549,19 @@ TEST(every_chunk_reads_is_ok)
     CHECK_EQ(dg_sd_reads_ok(&s), 1);
     CHECK_EQ(dg_sd_reads_ok(NULL), 0);
 }
+
+TEST(blank_card_identity)
+{
+    uint32_t cid[4] = { 0x035344u, 0x53433332u, 0x47801234u, 0x56789a00u };
+
+    CHECK_EQ(dg_sd_cid_blank(cid), 0);
+    cid[0] = cid[1] = cid[2] = cid[3] = 0;
+    CHECK_EQ(dg_sd_cid_blank(cid), 1);
+    cid[3] = 0x100u;
+    CHECK_EQ(dg_sd_cid_blank(cid), 0);
+    cid[0] = cid[1] = cid[2] = 0xffffffffu;
+    cid[3] = 0xffffff00u;
+    CHECK_EQ(dg_sd_cid_blank(cid), 1);
+    cid[3] = 0xfffffe00u;
+    CHECK_EQ(dg_sd_cid_blank(cid), 0);
+}

@@ -83,6 +83,7 @@ int dg_counts_result(const dg_counts_t *c, int stopped);
 #define DG_TX_SD_NOCARD     "No card."
 #define DG_TX_SD_NOSTART    "The card does not start."
 #define DG_TX_SD_NOVOL      "No boot volume."
+#define DG_TX_SD_CID        "Card ID all 0s or all 1s"
 #define DG_TX_SD_NODIR      "No /ROBCO folder"
 #define DG_TX_SD_DIRERR     "/ROBCO read error %d"
 #define DG_TX_SD_BLOCKS     "Bad %u blk, %u chunks"

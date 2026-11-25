@@ -290,6 +290,12 @@ void dg_test_sd(dg_run_t *r)
                info->type == SD_TYPE_SDHC ? "SDHC" : "SDSC", pnm,
                (unsigned)(info->capacity_blocks >> 11), (unsigned)info->psn);
     dg_work_line(0, line, 1);
+    if (dg_sd_cid_blank(info->cid)) {
+        r->result = DG_FAIL;
+        dg_keys(r, "why=cid cid0=0x%08x", (unsigned)info->cid[0]);
+        dg_text(r, DG_TX_SD_CID);
+        return;
+    }
     rc = fs_mount_boot("sd", &guard.dev, markers, sizeof(markers) / sizeof(markers[0]), &vol);
     if (rc != PART_BOOT_OK) {
         r->result = DG_FAIL;
