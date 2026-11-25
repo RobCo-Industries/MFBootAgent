@@ -9,11 +9,13 @@
 | `test_bootcfg.c` | The spec's three examples verbatim, the order of results per entry header, every limit, the path and `cmdline` rules, upper-case paths, last value wins, `[boot]` twice, duplicates, more than 8 usable entries, unusable sections that take no slot, defaults, syntax errors |
 | `test_menu.c` | Every key in every state, the countdown to zero, a key stopping it, `timeout = 0`, digits past the entries, the wrap of `timer_now_ms()` |
 | `test_menulines.c` | Every line of the screen and the 79-column limit |
-| `test_boot.c` | Loader results to codes and lines, the accepted subtypes, the header check order up to the subtype, the boot info fields this stage writes |
+| `test_boot.c` | Loader results to codes and lines, the accepted subtypes, the header check order up to the subtype, the boot info fields this stage writes, the four cases of the `boot_flags` bit 1 rule |
+| `test_keymap.c` | Every key code with press, repeat and release, every character, other events |
+| `test_maintscr.c` | Every key on every action, every page's lines, long names and paths cut as the menu cuts them, the screen on 80 by 18 and 80 by 30 grids |
 
 ## Target tests
 
-The tests boot QEMU through RobCo-Core's harness on `raspi0`, `raspi1ap`, `raspi2b` and `raspi3b`. The maintenance port, the second serial port, injects keys and answers `state` and `dump`. Tests match complete serial lines only.
+The tests boot QEMU through RobCo-Core's harness on `raspi0`, `raspi1ap`, `raspi2b` and `raspi3b`. The maintenance port, the second serial port, injects keys and answers `state` and `dump`. The port answers between input events, so a reply can come before the stage handled the keys sent ahead of it. The `state` line ends with `pending=<n>`, the input events not taken yet. The `state()` helper asks again until `pending=0`, so read the screen only after `state()`. Send several port lines in one write with `batch()`. It reads one reply per line, so no reply stays unread for a later `vm.script()` to take as its own. Tests match complete serial lines only.
 
 How the stage starts:
 
@@ -31,6 +33,7 @@ How the stage starts:
 | `test_load.py` | Each load failure with its line, then another entry boots; a wrong subtype with a good CRC, a bad CRC or a bad ABI reports `bounds`; each operating subtype boots; the countdown does not restart; the error golden; no card; no volume |
 | `test_chain.py` | After chain1: the screen is adopted, the old text stays, the boot info keeps earlier fields and sets new ones. After chain1 with no framebuffer: the `init` path. With `RETROS_IMG`: BIOS, MFBootAgent and the test OS in order, and the BIOS text above the menu. |
 | `test_env_hygiene.py` | No test copies the host environment |
+| `test_maint.py` | The maintenance screen opened by `M`, BACK, the port and `boot_flags` bit 1 from `tests/chain1maint`. Each action, verify with good and bad entries and with the card ejected, the countdown not restarting, `maint` and `key select` in one write in both orders, bit 1 in the next stage's boot info, the input back ends, the screen and verify goldens. |
 
 The test OS in `tests/os/` is built three times, as subtypes 0, 2 and 3. It checks the registers and the boot info it receives against the spec for a third stage and prints one `check` marker per check.
 
@@ -44,7 +47,7 @@ After an adopt the console does not know the earlier cells, and `dump` shows the
 
 ## Goldens
 
-`tests/golden/` holds screenshots: the menu, the error line and the screen at the handoff. They show no size, CRC or time. The handoff golden boots `tests/fixed_os.py`, a fixed image whose bytes are pinned. `ROBCO_UPDATE_GOLDEN=1` rewrites them.
+`tests/golden/` holds screenshots: the menu, the error line, the screen at the handoff, the maintenance screen and the verify table. They show no size, CRC or time. The handoff golden boots `tests/fixed_os.py`, a fixed image whose bytes are pinned. `ROBCO_UPDATE_GOLDEN=1` rewrites them.
 
 ## Timing
 
@@ -75,3 +78,7 @@ On a busy host, QEMU can stop the guest for longer than a tick period. The timer
 QEMU models no cache. The memory test proves that the flush runs over every byte, not that it reaches RAM on a board. Nothing here is validated on hardware.
 
 `test_diag_mem.py` allows a full pass `HOST_ALLOWANCE`, 20 s, above 10 s. The input idle test waits 20 s. Each test file takes under 35 s per board.
+
+## GPIO buttons
+
+QEMU cannot set Pi GPIO input levels. Every line reads 0, so the active-low buttons look held and the library disables the back end. The host tests cover the key mapping. The target tests check the `input` marker, `buttons=disabled_stuck`, and that console and port keys work. A BACK the port injects stands in for the button. Button navigation is untested on hardware.

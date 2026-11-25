@@ -108,3 +108,12 @@ def fixed_os():
     data = fo.build()
     assert (len(data), fo.sha256(data)) == (fo.SIZE, fo.SHA256)
     return data
+
+
+@pytest.fixture(scope="session")
+def chain1_maint_image(robco_build, build_dir):
+    """tests/chain1maint: examples/chain1 with the SD and framebuffer variants that
+    hands over boot_flags bit 1, the user's request for maintenance mode."""
+    out = os.path.join(build_dir, "chain1maint")
+    return robco_build(os.path.join(ROOT, "tests", "chain1maint"), flags=(f"BUILD={out}",),
+                       image=os.path.join(out, "chain1.img"))

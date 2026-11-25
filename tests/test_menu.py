@@ -25,7 +25,7 @@ MENU_ROWS = [
     "  2  MAINT                    /ROBCO/MAINT.SYS",
     "  3  DIAG                     /ROBCO/DIAG.SYS",
     "",
-    "UP/DOWN or 1-8: select   ENTER: boot   R: reboot",
+    "UP/DOWN or 1-8: select   ENTER: boot   M: maintenance   R: reboot",
 ]
 
 TWO_BOOTS = re.compile(r"(@RC stage=bootagent ev=boot [^\n]*\n[\s\S]*){2}")

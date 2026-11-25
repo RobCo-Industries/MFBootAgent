@@ -19,6 +19,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The maintenance port with `state`, `dump` and `reboot`.
 - Host tests, QEMU tests on four boards, a test operating image and CI.
 - `DIAG.SYS`, a diagnostics image of subtype 3 with tests of RAM, the SD card, video, audio, input, the timer, the RNG, the clock chip and the I/O expanders. `make sdimage` puts it on the card. A test reports OK only for what it measured: the memory test flushes the D-cache before each check, the SD test counts any write attempt and fails on a failed multi-block read even when every block reads alone, a failed expander attach fails, a PWM that fell back to the trace backend fails the audio test, and a stopped run all is never OK. The timer test reports `window_missed`, the ticks missed inside its window.
+- GPIO buttons on the library's example pins. UP and DOWN repeat while held. The `input` marker adds `gpio buttons repeat live`.
+- A maintenance screen, opened by `M`, BACK, the port's `maint` or `boot_flags` bit 1, with Verify entries, System, Configuration and Reboot. New markers `maint_open`, `maint_action`, `verify_entry`, `verify_done` and `maint_close`.
+- `boot_flags` bit 1 is set when the user opened the maintenance screen, and kept when it arrived set.
+- `docs/USER_MANUAL.md`.
 
 ### Changed
 
@@ -32,7 +36,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Sections without a path no longer take menu slots. Eight of them followed by a valid ninth used to give the default menu.
 - An image with a wrong subtype and a wrong CRC reported `crc`. It now reports `bounds`.
+- Verify entries could not mount the card again after it was pulled out once. Verify entries and each boot now mount the card in the slot, and recover after any failure.
 - A trusted console grid with too few rows for the menu put every menu row on the last row. A grid below 80 by 18 now gets a fresh screen, and the `screen` marker adds `grid`.
+- The port's `maint` sent after a key in one write could be answered `ok` and skipped, then open the screen after a failed load. The request now waits in the input queue behind earlier keys. A boot chosen first drops it with the new `maint_drop` marker.
+- The start wait for the GPIO guard no longer drops an event. A button held at power-on now reaches the menu, so a held BACK opens the maintenance screen.
 
 ### Removed
 

@@ -27,11 +27,11 @@
 
 #include "boot.h"
 #include "bootcfg.h"
+#include "maintscr.h"
 #include "menu.h"
 #include "menulines.h"
 #include "mfb.h"
 
-#define TICK_HZ 100
 #define SCREEN_W 640
 #define SCREEN_H 480
 
@@ -43,13 +43,27 @@ mfb_state_t mfb;
  */
 static const char *const vol_markers[] = { MFB_CFG_PATH, MFB_DEFAULT_PATH };
 static fs_boot_t vol;
-static mfb_cfg_t cfg;
+/*
+ * fs_mount_boot() clears `vol` on a failure, so the System page reads
+ * these instead: whether a volume is mounted now, the last volume that
+ * mounted, and the last failed step with its code.
+ */
+static int vol_mounted;
+static int vol_have_good;
+static uint32_t good_lba;
+static uint32_t good_blocks;
+static const char *fail_what = "none";
+static int fail_rc;
+mfb_cfg_t mfb_cfg;
 static char cfg_text[MFB_CFG_FILE_MAX];
+static mfb_cfg_report_t cfg_rep;    /* what read_config() found, for the Configuration page */
+static int cfg_result;              /* MFB_MS_CFG_* */
+static unsigned cfg_line;           /* the line that did not parse */
 
 static loader_result_t res;
 static mfb_menu_t menu;
 static unsigned menu_top;       /* console row of the menu's first row */
-static unsigned menu_rows;      /* MFB_MENU_ROWS(cfg.count) */
+static unsigned menu_rows;      /* MFB_MENU_ROWS(mfb_cfg.count) */
 
 
 void mfb_mark(const char *fmt, ...)
@@ -95,11 +109,18 @@ static const char *phase_name(int phase)
 
 void mfb_state_line(char *buf, unsigned size)
 {
-    k_snprintf(buf, size, "phase=%s trusted=%d entries=%u sel=%u counting=%d left=%u error=%s",
-               phase_name(mfb.phase), mfb.inherited, mfb.menu_ready ? cfg.count : 0,
+    /*
+     * pending: input events not taken yet. The port answers from inside
+     * input_poll(), before it takes the next event, so a reply with
+     * pending=0 means the stage handled every key sent before it.
+     */
+    k_snprintf(buf, size, "phase=%s trusted=%d entries=%u sel=%u counting=%d left=%u error=%s "
+               "maint=%d pending=%u",
+               phase_name(mfb.phase), mfb.inherited, mfb.menu_ready ? mfb_cfg.count : 0,
                mfb.menu_ready ? menu.sel + 1 : 0, mfb.menu_ready ? menu.counting : 0,
                mfb.menu_ready ? mfb_menu_left(&menu, timer_now_ms()) : 0,
-               mfb.error != 0 ? mfb_err_name(mfb.error) : "none");
+               mfb.error != 0 ? mfb_err_name(mfb.error) : "none", mfb.maint_open,
+               input_pending());
 }
 
 /*
@@ -172,6 +193,7 @@ static void init_screen(void)
         }
     }
     mfb.fb_ok = fb == 0 && con == 0;
+    mfb.screen = !mfb.fb_ok ? MFB_MS_SCREEN_NONE : kept ? MFB_MS_SCREEN_ADOPT : MFB_MS_SCREEN_FRESH;
     MFB_MARK("screen fb=%d console=%d kept=%d unknown=%u scheme=%u path=%s adopt_fb=%s "
              "adopt_console=%s grid=%s",
              fb, con, kept, unknown, scheme, kept ? "adopt" : "init",
@@ -195,6 +217,7 @@ static void entry(void)
              (unsigned)b->midr, b->soc_name, (unsigned)b->periph_base, (unsigned)b->board_rev,
              (unsigned)b->mem_size, mode_name(robco_boot_args()->entry_mode));
     mfb.inherited = bootinfo_inherited();
+    mfb.flags_in = mfb.inherited ? bootinfo_get()->boot_flags : 0;
     MFB_MARK("handoff trusted=%d", mfb.inherited);
     if (!mfb.inherited) {
         /* Cold: copy the firmware blob as a first stage does. bootinfo_build() records it. */
@@ -202,7 +225,7 @@ static void entry(void)
     }
     init_screen();
     irq_init();
-    tick_init(TICK_HZ);
+    tick_init(MFB_TICK_HZ);
     irq_cpu_enable();
     maint_start();
     /* Information only: a failed check is reported and the boot goes on. */
@@ -223,20 +246,110 @@ static void halt_io(const char *what, int rc)
     maint_idle();
 }
 
-/* Step 2: the boot volume, by the rule every stage shares. */
+/*
+ * The boot volume, by the rule every stage shares. Returns 0, or the
+ * failed step in *what ("sd" or "fat") with its code in *rc.
+ */
+static int mount_failed(const char *what, int rc)
+{
+    vol_mounted = 0;
+    fail_what = what;
+    fail_rc = rc;
+    return -1;
+}
+
+int mfb_mount(const char **what, int *rc)
+{
+    vol_mounted = 0;
+    *what = "sd";
+    *rc = sd_init();
+    if (*rc != 0) {
+        return mount_failed(*what, *rc);
+    }
+    *what = "fat";
+    *rc = fs_mount_boot("sd", sd_blkdev(), vol_markers,
+                        sizeof(vol_markers) / sizeof(vol_markers[0]), &vol);
+    if (*rc != PART_BOOT_OK) {
+        return mount_failed(*what, *rc);
+    }
+    vol_mounted = 1;
+    vol_have_good = 1;
+    good_lba = (uint32_t)vol.start_lba;
+    good_blocks = (uint32_t)vol.block_count;
+    return 0;
+}
+
+/*
+ * Drops the boot volume, whatever card is in the slot now. 0 when
+ * nothing is mounted on return, or the fs_unmount() error.
+ *
+ * fs_unmount() syncs the device first and keeps the volume on a failed
+ * sync. With the card out, or after a failed sd_init(), the driver is
+ * not ready and the sync returns BLK_ERR_NOMEDIA. So on a failure the
+ * driver is set up again and the unmount tried once more: with a card
+ * that answers, the sync passes and the volume goes. The library has no
+ * way to drop a volume without the sync.
+ *
+ * Nothing is lost by dropping the volume: this stage never writes to the
+ * card. It opens files only with FS_READ (fs_read_file(), precheck() and
+ * loader_load()), so FatFs holds no dirty sector.
+ *
+ * When the volume stays, sd_deinit() leaves the driver not ready, so
+ * every read through the old volume fails with BLK_ERR_NOMEDIA. A stale
+ * volume never reads another card.
+ */
+static int release(const char **what, int *rc)
+{
+    *what = "release";
+    *rc = fs_unmount("sd");
+    if (*rc != FS_OK && *rc != FS_ERR_NOVOL) {
+        int sd = sd_init();
+
+        if (sd != 0) {
+            /* No card answers: that is the cause to report. */
+            *what = "sd";
+            *rc = sd;
+            sd_deinit();
+            return -1;
+        }
+        *rc = fs_unmount("sd");
+    }
+    if (*rc == FS_OK || *rc == FS_ERR_NOVOL) {
+        *rc = 0;
+        return 0;
+    }
+    sd_deinit();
+    return -1;
+}
+
+int mfb_remount(const char **what, int *rc)
+{
+    const char *w;
+    int r;
+
+    vol_mounted = 0;
+    if (release(what, rc) != 0) {
+        return mount_failed(*what, *rc);
+    }
+    if (mfb_mount(what, rc) == 0) {
+        return 0;
+    }
+    /* PART_BOOT_ERR_RELEASE keeps a volume: drop it too. */
+    (void)release(&w, &r);
+    return -1;
+}
+
+/* Step 2: the boot volume. */
 static void mount(void)
 {
-    int rc = sd_init();
+    const char *what;
+    int rc;
 
-    if (rc != 0) {
-        halt_io("sd", rc);
+    if (mfb_mount(&what, &rc) != 0) {
+        halt_io(what, rc);
     }
-    rc = fs_mount_boot("sd", sd_blkdev(), vol_markers,
-                       sizeof(vol_markers) / sizeof(vol_markers[0]), &vol);
-    if (rc != PART_BOOT_OK) {
-        halt_io("fat", rc);
-    }
-    MFB_MARK("mount lba=%u blocks=%u", (unsigned)vol.start_lba, (unsigned)vol.block_count);
+    /* halt_io() never returns: here the mount worked and `vol` holds it. */
+    MFB_MARK("mount lba=%u blocks=%u", (unsigned)good_lba, (unsigned)good_blocks);
 }
 
 /* Step 3: the menu entries from BOOT.CFG, or the one default entry. */
@@ -248,14 +361,20 @@ static void read_config(void)
     char timeout[8];
     int rc;
 
-    mfb_cfg_default(&cfg);
+    mfb_cfg_default(&mfb_cfg);
+    k_memset(&r, 0, sizeof(r));
     rc = fs_read_file(MFB_CFG_PATH, cfg_text, sizeof(cfg_text), &len);
     if (rc == FS_ERR_NOENT) {
+        cfg_result = MFB_MS_CFG_MISSING;
         MFB_MARK("config result=missing path=" MFB_CFG_PATH);
     } else if (rc != 0) {
+        cfg_result = MFB_MS_CFG_READ;
         MFB_MARK("config result=bad path=" MFB_CFG_PATH " why=read rc=%d", rc);
     } else {
-        rc = mfb_cfg_parse(cfg_text, len, &cfg, &r, &err_line);
+        rc = mfb_cfg_parse(cfg_text, len, &mfb_cfg, &r, &err_line);
+        cfg_result = rc == MFB_CFG_SYNTAX ? MFB_MS_CFG_SYNTAX :
+                     rc == MFB_CFG_EMPTY ? MFB_MS_CFG_EMPTY : MFB_MS_CFG_OK;
+        cfg_line = err_line;
         if (rc == MFB_CFG_SYNTAX) {
             MFB_MARK("config result=bad path=" MFB_CFG_PATH " why=syntax line=%u", err_line);
         } else if (rc == MFB_CFG_EMPTY) {
@@ -265,16 +384,17 @@ static void read_config(void)
         } else {
             MFB_MARK("config result=ok path=" MFB_CFG_PATH " entries=%u ignored=%u dup=%u "
                      "unknown=%u bad=%u clamped=%u default_found=%d nopath=%u",
-                     cfg.count, r.ignored, r.dup, r.unknown, r.bad, r.clamped, r.default_found,
+                     mfb_cfg.count, r.ignored, r.dup, r.unknown, r.bad, r.clamped, r.default_found,
                      r.nopath);
         }
     }
-    if (cfg.timeout == MFB_TIMEOUT_NONE) {
+    cfg_rep = r;
+    if (mfb_cfg.timeout == MFB_TIMEOUT_NONE) {
         k_snprintf(timeout, sizeof(timeout), "none");
     } else {
-        k_snprintf(timeout, sizeof(timeout), "%d", cfg.timeout);
+        k_snprintf(timeout, sizeof(timeout), "%d", mfb_cfg.timeout);
     }
-    MFB_MARK("entries count=%u default=%s timeout=%s", cfg.count, cfg.entry[cfg.def].name,
+    MFB_MARK("entries count=%u default=%s timeout=%s", mfb_cfg.count, mfb_cfg.entry[mfb_cfg.def].name,
              timeout);
 }
 
@@ -284,7 +404,7 @@ static void read_config(void)
  * there. The console wraps only on the next character, and every caller
  * moves the cursor first. to_uart: also one line on the PL011.
  */
-static void put_row(unsigned row, const char *text, unsigned attr, int to_uart)
+void mfb_put_row(unsigned top, unsigned row, const char *text, unsigned attr, int to_uart)
 {
     if (mfb.fb_ok) {
         unsigned cols = console_cols();
@@ -294,7 +414,7 @@ static void put_row(unsigned row, const char *text, unsigned attr, int to_uart)
         if (n >= cols) {
             n = cols != 0 ? cols - 1 : 0;
         }
-        console_set_cursor(0, menu_top + row);
+        console_set_cursor(0, top + row);
         console_set_attr(attr);
         console_write(text, n);
         console_set_attr(CONSOLE_ATTR_NORMAL);
@@ -308,6 +428,11 @@ static void put_row(unsigned row, const char *text, unsigned attr, int to_uart)
     }
 }
 
+static void put_row(unsigned row, const char *text, unsigned attr, int to_uart)
+{
+    mfb_put_row(menu_top, row, text, attr, to_uart);
+}
+
 static unsigned entry_row(unsigned i)
 {
     return MFB_ROW_ENTRY0 + i;
@@ -315,7 +440,7 @@ static unsigned entry_row(unsigned i)
 
 static unsigned after_row(unsigned offset)
 {
-    return MFB_ROW_ENTRY0 + cfg.count + offset;
+    return MFB_ROW_ENTRY0 + mfb_cfg.count + offset;
 }
 
 static void draw_entry(unsigned i, int to_uart)
@@ -323,7 +448,7 @@ static void draw_entry(unsigned i, int to_uart)
     char line[MFB_LINE_MAX];
     int selected = i == menu.sel;
 
-    mfb_line_entry(line, sizeof(line), i, &cfg.entry[i], i == cfg.def, selected);
+    mfb_line_entry(line, sizeof(line), i, &mfb_cfg.entry[i], i == mfb_cfg.def, selected);
     put_row(entry_row(i), line, selected ? CONSOLE_ATTR_BRIGHT : CONSOLE_ATTR_NORMAL, to_uart);
 }
 
@@ -332,7 +457,7 @@ static void draw_status(int to_uart)
     char line[MFB_LINE_MAX];
 
     mfb_line_status(line, sizeof(line), menu.counting, menu.stopped,
-                    mfb_menu_left(&menu, timer_now_ms()), cfg.entry[cfg.def].name);
+                    mfb_menu_left(&menu, timer_now_ms()), mfb_cfg.entry[mfb_cfg.def].name);
     put_row(after_row(MFB_ROW_STATUS_AFTER), line, CONSOLE_ATTR_NORMAL, to_uart);
 }
 
@@ -340,24 +465,28 @@ static void draw_status(int to_uart)
  * Finds the rows for the menu below the text on the screen: a blank row
  * after earlier text, and a scroll when the menu does not fit under it.
  */
-static void place_menu(void)
+unsigned mfb_place(unsigned rows)
 {
     mfb_place_t p;
     unsigned col, row, i;
 
-    menu_rows = MFB_MENU_ROWS(cfg.count);
-    menu_top = 0;
     if (!mfb.fb_ok) {
-        return;
+        return 0;
     }
     console_get_cursor(&col, &row);
     /* The grid is at least MFB_MENU_MIN_ROWS rows: init_screen() checked it. */
-    mfb_menu_place(console_rows(), menu_rows, col, row, &p);
+    mfb_menu_place(console_rows(), rows, col, row, &p);
     for (i = 0; i < p.scroll; i++) {
         console_set_cursor(0, console_rows() - 1);
         console_putc('\n');
     }
-    menu_top = p.top;
+    return p.top;
+}
+
+static void place_menu(void)
+{
+    menu_rows = MFB_MENU_ROWS(mfb_cfg.count);
+    menu_top = mfb_place(menu_rows);
 }
 
 /* Clears a menu row. */
@@ -384,7 +513,7 @@ static void draw_menu(void)
     }
     put_row(MFB_ROW_RULE, mfb_line_rule(), CONSOLE_ATTR_DIM, 1);
     clear_row(MFB_ROW_RULE + 1);
-    for (i = 0; i < cfg.count; i++) {
+    for (i = 0; i < mfb_cfg.count; i++) {
         draw_entry(i, 1);
     }
     clear_row(after_row(0));
@@ -404,13 +533,44 @@ static void redraw(void)
     if (d & MFB_DIRTY_SEL) {
         draw_entry(old, 0);
         draw_entry(menu.sel, 1);
-        MFB_MARK("select index=%u name=%s", menu.sel + 1, cfg.entry[menu.sel].name);
+        MFB_MARK("select index=%u name=%s", menu.sel + 1, mfb_cfg.entry[menu.sel].name);
     }
     if (d & MFB_DIRTY_STATUS) {
         draw_status(1);
         if (menu.stopped && !menu.counting) {
             MFB_MARK("countdown state=stopped");
         }
+    }
+}
+
+void mfb_reboot(const char *source)
+{
+    MFB_MARK("reboot source=%s", source);
+    uart_flush();
+    power_reboot();
+}
+
+/*
+ * The maintenance screen, then the menu again below it. The menu state
+ * stays as it was: the countdown does not start again.
+ */
+static void maint_screen(int why)
+{
+    if (mfb.maint_req != 0) {
+        /* A key opened it before the port's request came up: the screen it asked for shows. */
+        mfb.maint_req = 0;
+        MFB_MARK("maint_drop why=open");
+    }
+    mfb.maint_open = 1;
+    if (why != MFB_WHY_FLAG) {
+        mfb.user_maint = 1;
+    }
+    mfb_maint_run(why);
+    mfb.maint_open = 0;
+    place_menu();
+    draw_menu();
+    if (mfb.fb_ok) {
+        console_set_cursor(0, menu_top + menu_rows - 1);
     }
 }
 
@@ -425,15 +585,31 @@ static int menu_loop(void)
         redraw();
         if (act == MFB_ACT_NONE &&
             input_wait(&ev, mfb_menu_wait_ms(&menu, timer_now_ms())) != 0) {
-            act = mfb_menu_event(&menu, &ev);
+            int port = mfb_port_maint(&ev, mfb.maint_req);
+
+            if (port == MFB_PORT_OPEN) {
+                /* The maint command on the port: it stops the countdown as a key does. */
+                mfb.maint_req = 0;
+                menu.why = MFB_WHY_PORT;
+                mfb_menu_stop(&menu);
+                act = MFB_ACT_MAINT;
+            } else if (port == MFB_PORT_NONE) {
+                act = mfb_menu_event(&menu, &ev);
+            }
             redraw();
         }
+        if (act == MFB_ACT_MAINT) {
+            maint_screen(menu.why);
+        }
         if (act == MFB_ACT_REBOOT) {
-            MFB_MARK("reboot source=key");
-            uart_flush();
-            power_reboot();
+            mfb_reboot("key");
         }
         if (act == MFB_ACT_BOOT) {
+            if (mfb.maint_req != 0) {
+                /* An earlier key or the countdown chose the boot: the request behind it goes. */
+                mfb.maint_req = 0;
+                MFB_MARK("maint_drop why=boot");
+            }
             return act;
         }
     }
@@ -442,7 +618,11 @@ static int menu_loop(void)
 /* Step 4: the menu. */
 static void show_menu(void)
 {
-    mfb_menu_init(&menu, cfg.count, cfg.def, cfg.timeout, timer_now_ms());
+    /* Bit 1 received: the maintenance screen opens in place of the countdown. */
+    int at_start = mfb_maint_at_start(mfb.inherited, mfb.flags_in);
+
+    mfb_menu_init(&menu, mfb_cfg.count, mfb_cfg.def, at_start ? MFB_TIMEOUT_NONE : mfb_cfg.timeout,
+                  timer_now_ms());
     mfb.menu_ready = 1;
     place_menu();
     draw_menu();
@@ -450,10 +630,13 @@ static void show_menu(void)
         console_set_cursor(0, menu_top + menu_rows - 1);
     }
     mfb.phase = MFB_PHASE_MENU;
-    if (cfg.timeout > 0) {
-        MFB_MARK("countdown state=start seconds=%d", cfg.timeout);
+    if (mfb_cfg.timeout > 0 && !at_start) {
+        MFB_MARK("countdown state=start seconds=%d", mfb_cfg.timeout);
     }
     MFB_MARK("ready");
+    if (at_start) {
+        maint_screen(MFB_WHY_FLAG);
+    }
 }
 
 /* Step 6: a failed load. The error line under the menu, and the menu stays. */
@@ -485,6 +668,7 @@ static void handoff(const mfb_entry_t *e)
     char name[sizeof(res.hdr->name) + 1];
 
     fs_unmount("sd");
+    vol_mounted = 0;
     k_snprintf(line, sizeof(line), "Starting %s.", e->name);
     clear_row(after_row(MFB_ROW_ERROR_AFTER));
     put_row(after_row(MFB_ROW_START_AFTER), line, CONSOLE_ATTR_NORMAL, 1);
@@ -494,7 +678,13 @@ static void handoff(const mfb_entry_t *e)
         console_cursor_show(0);
     }
     bootinfo_build(bi, ROBCO_STAGE_BOOTAGENT);
-    mfb_bootinfo_set_boot(bi, ROBCO_BOOT_DEV_EMMC, (uint32_t)vol.start_lba, e->path, e->cmdline);
+    bi->boot_flags = mfb_maint_flag(bi->boot_flags, mfb.inherited, mfb.flags_in, mfb.user_maint);
+    /*
+     * handoff() has one caller, boot_selected(), and it runs only after
+     * mfb_remount() returned 0 and the entry loaded from that volume.
+     * So good_lba is the volume the image came from, never a cleared one.
+     */
+    mfb_bootinfo_set_boot(bi, ROBCO_BOOT_DEV_EMMC, good_lba, e->path, e->cmdline);
     k_memcpy(name, res.hdr->name, sizeof(res.hdr->name));
     name[sizeof(res.hdr->name)] = '\0';
     MFB_MARK("bootinfo flags=0x%08x caps=0x%08x dev=%u part_lba=%u path=%s cmdline_len=%u "
@@ -533,14 +723,25 @@ static int precheck(const char *path)
     return mfb_check_os_header(head, (size_t)n, (uint32_t)size);
 }
 
-/* Step 5: loads the selected entry into the OS slot. Returns only when it fails. */
-static void boot_selected(void)
+int mfb_check_entry(const mfb_entry_t *e, loader_result_t *out)
 {
     const loader_slot_t slot = { MFB_OS_SLOT_BASE, MFB_OS_SLOT_SIZE, NULL };
     const rimg_expect_t expect = { .magic = RIMG_MAGIC_BOOT, .abi_major = MFB_OS_ABI };
-    const mfb_entry_t *e = &cfg.entry[menu.sel];
+    int rc = precheck(e->path);
+
+    if (rc == RIMG_OK) {
+        rc = loader_load(e->path, &slot, &expect, out);
+    }
+    return rc;
+}
+
+/* Step 5: loads the selected entry into the OS slot. Returns only when it fails. */
+static void boot_selected(void)
+{
+    const mfb_entry_t *e = &mfb_cfg.entry[menu.sel];
     char line[MFB_LINE_MAX];
     char name[sizeof(res.hdr->name) + 1];
+    const char *what;
     int rc;
 
     mfb.phase = MFB_PHASE_LOAD;
@@ -549,10 +750,13 @@ static void boot_selected(void)
     redraw();
     mfb_line_loading(line, sizeof(line), e);
     put_row(after_row(MFB_ROW_START_AFTER), line, CONSOLE_ATTR_NORMAL, 1);
-    rc = precheck(e->path);
-    if (rc == RIMG_OK) {
-        rc = loader_load(e->path, &slot, &expect, &res);
+    /* The card may have changed since the boot: mount the one in the slot now. */
+    if (mfb_remount(&what, &rc) != 0) {
+        MFB_MARK("remount what=%s rc=%d", what, rc);
+        load_failed(e, MFB_ERR_IO);
+        return;
     }
+    rc = mfb_check_entry(e, &res);
     if (rc != RIMG_OK) {
         load_failed(e, rc);
         return;
@@ -576,4 +780,38 @@ void robco_main(void)
         (void)menu_loop();
         boot_selected();
     }
+}
+
+void mfb_sys_info(mfb_ms_sys_t *sys)
+{
+    const robco_board_t *b = board_get();
+
+    sys->board = board_model_name(b->board_rev);
+    sys->soc = b->soc_name;
+    sys->mem_bytes = b->mem_size;
+    sys->mounted = vol_mounted;
+    sys->have_good = vol_have_good;
+    sys->vol_lba = good_lba;
+    sys->vol_blocks = good_blocks;
+    sys->fail_what = fail_what;
+    sys->fail_rc = fail_rc;
+    sys->trusted = mfb.inherited;
+    sys->flags_in = mfb.flags_in;
+    sys->version = MFB_VERSION_STR;
+    sys->core_pin = MFB_CORE_PIN;
+    sys->screen = mfb.screen;
+}
+
+void mfb_cfg_info(mfb_ms_cfg_t *c)
+{
+    c->result = cfg_result;
+    c->line = cfg_line;
+    c->path = MFB_CFG_PATH;
+    c->def = mfb_cfg.entry[mfb_cfg.def].name;
+    c->timeout = mfb_cfg.timeout;
+    c->entries = mfb_cfg.count;
+    c->ignored = cfg_rep.ignored;
+    c->dup = cfg_rep.dup;
+    c->bad = cfg_rep.bad;
+    c->clamped = cfg_rep.clamped;
 }
