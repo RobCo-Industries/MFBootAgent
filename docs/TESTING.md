@@ -15,7 +15,7 @@
 
 ## Target tests
 
-The tests boot QEMU through RobCo-Core's harness on `raspi0`, `raspi1ap`, `raspi2b` and `raspi3b`. The maintenance port, the second serial port, injects keys and answers `state` and `dump`. The port answers between input events, so a reply can come before the stage handled the keys sent ahead of it. The `state` line ends with `pending=<n>`, the input events not taken yet. The `state()` helper asks again until `pending=0`, so read the screen only after `state()`. Tests match complete serial lines only.
+The tests boot QEMU through RobCo-Core's harness on `raspi0`, `raspi1ap`, `raspi2b` and `raspi3b`. The maintenance port, the second serial port, injects keys and answers `state` and `dump`. The port answers between input events, so a reply can come before the stage handled the keys sent ahead of it. The `state` line ends with `pending=<n>`, the input events not taken yet. The `state()` helper asks again until `pending=0`, so read the screen only after `state()`. Send several port lines in one write with `batch()`. It reads one reply per line, so no reply stays unread for a later `vm.script()` to take as its own. Tests match complete serial lines only.
 
 How the stage starts:
 
