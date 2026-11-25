@@ -1,6 +1,7 @@
 /* The menu state machine: every key in every state, the countdown and the time wrap. */
 
 #include "menu.h"
+#include "portreq.h"
 #include "rc_test.h"
 
 static mfb_menu_t m;
@@ -323,21 +324,21 @@ TEST(port_maint_in_queue_order)
     input_event_t ev = port_req(3);
 
     /* The live request opens the screen; an older or dropped one does nothing. */
-    CHECK_EQ(mfb_port_maint(&ev, 3), MFB_PORT_OPEN);
-    CHECK_EQ(mfb_port_maint(&ev, 4), MFB_PORT_STALE);
-    CHECK_EQ(mfb_port_maint(&ev, 0), MFB_PORT_STALE);
+    CHECK_EQ(mfb_port_req(&ev, 3), MFB_PORT_LIVE);
+    CHECK_EQ(mfb_port_req(&ev, 4), MFB_PORT_STALE);
+    CHECK_EQ(mfb_port_req(&ev, 0), MFB_PORT_STALE);
     /* Keys are no request, NUL from another source or with value 0 neither. */
     ev = chr('m');
     ev.source = INPUT_SRC_SCRIPT;
-    CHECK_EQ(mfb_port_maint(&ev, 3), MFB_PORT_NONE);
+    CHECK_EQ(mfb_port_req(&ev, 3), MFB_PORT_NONE);
     ev = port_req(0);
-    CHECK_EQ(mfb_port_maint(&ev, 3), MFB_PORT_NONE);
+    CHECK_EQ(mfb_port_req(&ev, 3), MFB_PORT_NONE);
     ev = port_req(3);
     ev.source = INPUT_SRC_SERIAL;
-    CHECK_EQ(mfb_port_maint(&ev, 3), MFB_PORT_NONE);
+    CHECK_EQ(mfb_port_req(&ev, 3), MFB_PORT_NONE);
     ev = key(INPUT_KEY_SELECT, INPUT_PRESS);
     ev.source = INPUT_SRC_SCRIPT;
-    CHECK_EQ(mfb_port_maint(&ev, 3), MFB_PORT_NONE);
+    CHECK_EQ(mfb_port_req(&ev, 3), MFB_PORT_NONE);
     /* Not a key for the menu either. */
     ev = port_req(3);
     mfb_menu_init(&m, 2, 0, 5, 0);

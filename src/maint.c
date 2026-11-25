@@ -71,7 +71,7 @@ static int command(int argc, char *argv[], input_script_reply_t *reply, void *ct
         }
         /*
          * The request goes through the input queue, behind the keys sent
-         * before it: the menu takes them first. See mfb_port_maint().
+         * before it: the menu takes them first. See mfb_port_req().
          */
         wake.type = INPUT_EV_CHAR;
         wake.source = INPUT_SRC_SCRIPT;
