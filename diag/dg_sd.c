@@ -2,6 +2,9 @@
 
 #include <stddef.h>
 
+#include <robco/klibc.h>
+#include <robco/rimg.h>
+
 #include "dg_sd.h"
 
 void dg_sd_plan(dg_sd_plan_t *p, uint64_t start, uint64_t blocks)
@@ -47,4 +50,128 @@ uint64_t dg_sd_plan_blocks(const dg_sd_plan_t *p)
         return 0;
     }
     return p->sampled ? (uint64_t)p->chunks * DG_SD_CHUNK : p->blocks;
+}
+
+static char upper(char c)
+{
+    return c >= 'a' && c <= 'z' ? (char)(c - 'a' + 'A') : c;
+}
+
+int dg_sd_image_name(const char *name)
+{
+    static const char *const exts[] = { ".SYS", ".BAK", ".IMG" };
+    size_t n;
+    size_t i;
+    size_t k;
+
+    if (name == NULL) {
+        return 0;
+    }
+    n = k_strlen(name);
+    if (n < 5) {
+        /* A name needs at least one character before its extension. */
+        return 0;
+    }
+    for (i = 0; i < sizeof(exts) / sizeof(exts[0]); i++) {
+        for (k = 0; k < 4 && upper(name[n - 4 + k]) == exts[i][k]; k++) {
+        }
+        if (k == 4) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int dg_sd_head(uint32_t size, const void *head, int n)
+{
+    int rc;
+
+    if (size == 0) {
+        return DG_SDF_EMPTY;
+    }
+    if (size < RIMG_META_OFFSET) {
+        return DG_SDF_SHORT;
+    }
+    if (head == NULL || n < (int)RIMG_META_OFFSET) {
+        return RIMG_E_IO;
+    }
+    rc = rimg_check_header(head, size, NULL);
+    return rc;
+}
+
+const char *dg_sd_outcome_name(int outcome)
+{
+    switch (outcome) {
+    case DG_SDF_EMPTY: return "empty";
+    case DG_SDF_SHORT: return "short";
+    case DG_SDF_ISDIR: return "isdir";
+    case DG_SDF_OPEN:  return "open";
+    case DG_SDF_OTHER: return "other";
+    default:           return rimg_strerror(outcome);
+    }
+}
+
+int dg_sd_scan(const dg_sd_ops_t *ops, int noent_rc, dg_sd_scan_t *s)
+{
+    dg_sd_entry_t e;
+    int result = DG_SD_SCAN_OK;
+    int rc;
+
+    if (s == NULL) {
+        return DG_SD_SCAN_DIRERR;
+    }
+    k_memset(s, 0, sizeof(*s));
+    if (ops == NULL) {
+        return DG_SD_SCAN_DIRERR;
+    }
+    rc = ops->opendir(ops->ctx);
+    if (rc != 0) {
+        s->dir_rc = rc;
+        return rc == noent_rc ? DG_SD_SCAN_NODIR : DG_SD_SCAN_DIRERR;
+    }
+    for (;;) {
+        int image;
+        int out;
+
+        k_memset(&e, 0, sizeof(e));
+        rc = ops->readdir(ops->ctx, &e);
+        if (rc == 0) {
+            break;
+        }
+        if (rc != 1) {
+            /* An error is never the end of the directory. */
+            s->dir_rc = rc < 0 ? rc : -1;
+            result = DG_SD_SCAN_DIRERR;
+            break;
+        }
+        image = dg_sd_image_name(e.name);
+        if (e.is_dir && !image) {
+            continue;
+        }
+        if (!e.is_dir) {
+            s->files++;
+        }
+        if (!image) {
+            s->others++;
+            out = DG_SDF_OTHER;
+        } else {
+            s->images++;
+            out = e.is_dir ? DG_SDF_ISDIR : ops->check(ops->ctx, &e);
+            if (out != DG_SDF_OK) {
+                if (s->bad == 0) {
+                    s->first_bad = out;
+                    k_strncpy(s->bad_name, e.name, sizeof(s->bad_name));
+                    s->bad_name[sizeof(s->bad_name) - 1] = '\0';
+                }
+                s->bad++;
+            }
+        }
+        ops->report(ops->ctx, &e, out);
+        if (ops->abort(ops->ctx)) {
+            result = DG_SD_SCAN_ABORT;
+            break;
+        }
+    }
+    (void)ops->closedir(ops->ctx);
+    return result;
 }
