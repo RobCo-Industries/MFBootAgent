@@ -14,9 +14,6 @@
 #include "mt.h"
 #include "mt_clock.h"
 
-/* A read back this many seconds after the written time still matches. */
-#define READBACK_SLACK_S 2u
-
 static const char *chip_name(int chip)
 {
     return chip == RTC_CHIP_DS3231 ? "ds3231" : chip == RTC_CHIP_DS1307 ? "ds1307" : "none";
@@ -47,9 +44,8 @@ void mt_tool_clock(mt_run_t *r)
     char want_text[DT_ISO_SIZE];
     char got_text[DT_ISO_SIZE];
     char line[MT_LINE_MAX];
-    uint32_t ws = 0;
-    uint32_t gs = 0;
     int rc;
+    int ap;
 
     rc = mt_i2c();
     if (rc != 0) {
@@ -114,15 +110,14 @@ void mt_tool_clock(mt_run_t *r)
         return;
     }
     mt_keys(r, "set=%s", want_text);
-    rc = rtc_set(&want);
-    if (rc != 0) {
+    ap = mt_clock_apply(&want, rtc_set, rtc_get, &got, &rc);
+    if (ap == MT_CF_ESET) {
         r->result = MT_FAIL;
         mt_keys(r, "why=set rc=%d", rc);
         mt_text(r, "Write failed: %d.", rc);
         return;
     }
-    rc = rtc_get(&got);
-    if (rc != 0) {
+    if (ap == MT_CF_EREAD) {
         r->result = MT_FAIL;
         mt_keys(r, "why=readback rc=%d", rc);
         mt_text(r, "Read back failed: %d.", rc);
@@ -133,9 +128,7 @@ void mt_tool_clock(mt_run_t *r)
     mt_keys(r, "read=%s", got_text);
     k_snprintf(line, sizeof(line), "Wrote %s, read back %s.", want_text, got_text);
     mt_work_line(7, line, 1);
-    (void)dt_to_seconds(&want, &ws);
-    (void)dt_to_seconds(&got, &gs);
-    if (gs < ws || gs - ws > READBACK_SLACK_S) {
+    if (ap == MT_CF_EDIFF) {
         r->result = MT_FAIL;
         mt_keys(r, "why=readback");
         mt_text(r, "Read back differs.");

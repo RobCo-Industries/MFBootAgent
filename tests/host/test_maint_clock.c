@@ -160,3 +160,58 @@ TEST(releases_do_nothing)
     ev.code = INPUT_KEY_UP;
     CHECK_EQ(mt_clock_event(&f, &ev), MT_CF_CHANGED);
 }
+
+/* A fake clock for mt_clock_apply(). */
+static int fake_set_rc;
+static int fake_get_rc;
+static int fake_drift;      /* seconds the read back adds to what was set */
+static datetime_t fake_now;
+
+static int fake_set(const datetime_t *dt)
+{
+    if (fake_set_rc == 0) {
+        fake_now = *dt;
+    }
+    return fake_set_rc;
+}
+
+static int fake_get(datetime_t *out)
+{
+    uint32_t s = 0;
+
+    if (fake_get_rc != 0) {
+        return fake_get_rc;
+    }
+    dt_to_seconds(&fake_now, &s);
+    return dt_from_seconds((uint32_t)((int)s + fake_drift), out);
+}
+
+static int apply(int set_rc, int get_rc, int drift, int *rc)
+{
+    datetime_t want = { 2030, 6, 15, 12, 0, 0, 0 };
+    datetime_t got;
+
+    fake_set_rc = set_rc;
+    fake_get_rc = get_rc;
+    fake_drift = drift;
+    memset(&fake_now, 0, sizeof(fake_now));
+    return mt_clock_apply(&want, fake_set, fake_get, &got, rc);
+}
+
+TEST(apply_writes_reads_back_and_checks)
+{
+    int rc = 99;
+
+    CHECK_EQ(apply(0, 0, 0, &rc), MT_CF_OK);
+    CHECK_EQ(rc, 0);
+    CHECK_EQ(apply(0, 0, 2, &rc), MT_CF_OK);
+    /* A failed write: no read back. */
+    CHECK_EQ(apply(-11, 0, 0, &rc), MT_CF_ESET);
+    CHECK_EQ(rc, -11);
+    CHECK_EQ(apply(0, -12, 0, &rc), MT_CF_EREAD);
+    CHECK_EQ(rc, -12);
+    /* A read back that differs: earlier, or more than the slack later. */
+    CHECK_EQ(apply(0, 0, -1, &rc), MT_CF_EDIFF);
+    CHECK_EQ(apply(0, 0, 3, &rc), MT_CF_EDIFF);
+    CHECK_EQ(apply(0, 0, 3600, &rc), MT_CF_EDIFF);
+}

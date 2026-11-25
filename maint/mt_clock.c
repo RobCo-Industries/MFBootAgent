@@ -149,3 +149,24 @@ void mt_clock_text(const mt_clock_form_t *f, char *out, size_t size)
         n = k_strlen(out);
     }
 }
+
+int mt_clock_apply(const datetime_t *want, int (*set)(const datetime_t *dt),
+                   int (*get)(datetime_t *out), datetime_t *got, int *rc)
+{
+    uint32_t ws = 0;
+    uint32_t gs = 0;
+
+    *rc = set(want);
+    if (*rc != 0) {
+        return MT_CF_ESET;
+    }
+    *rc = get(got);
+    if (*rc != 0) {
+        return MT_CF_EREAD;
+    }
+    if (dt_to_seconds(want, &ws) != 0 || dt_to_seconds(got, &gs) != 0 || gs < ws ||
+        gs - ws > MT_CF_SLACK_S) {
+        return MT_CF_EDIFF;
+    }
+    return MT_CF_OK;
+}

@@ -45,4 +45,21 @@ int mt_clock_get(const mt_clock_form_t *f, datetime_t *out);
  */
 void mt_clock_text(const mt_clock_form_t *f, char *out, size_t size);
 
+/* A read back this many seconds after the written time still matches. */
+#define MT_CF_SLACK_S   2u
+
+/* mt_clock_apply() results. */
+#define MT_CF_OK        0
+#define MT_CF_ESET      1   /* set() failed: *rc holds its code */
+#define MT_CF_EREAD     2   /* get() failed after the write: *rc holds its code */
+#define MT_CF_EDIFF     3   /* the read back is not 0 to MT_CF_SLACK_S s after want */
+
+/*
+ * Writes want with set(), reads it back with get() into *got and checks
+ * the read back. The clock is behind the two calls so the host tests can
+ * fake it. Returns MT_CF_OK or an MT_CF_E* code.
+ */
+int mt_clock_apply(const datetime_t *want, int (*set)(const datetime_t *dt),
+                   int (*get)(datetime_t *out), datetime_t *got, int *rc);
+
 #endif
