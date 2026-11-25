@@ -3,6 +3,8 @@ binary file, a cancel. Never a write."""
 
 import hashlib
 
+import pytest
+
 import mfboot as mf
 from maintimg import (alone, card, command, dump, events, good_files, key, maint_image,  # noqa: F401
                       maint_test_image, start, state, wait_result)
@@ -19,8 +21,8 @@ def digest(path):
 def open_cfg(vm):
     start(vm, "view_file")
     _, rows = dump(vm)
-    assert rows[HEAD] == "Choose a file. ENTER: view   ESC: back", rows
-    assert rows[HEAD + 1] == "> 1  BOOT.CFG      /ROBCO/BOOT.CFG", rows
+    assert rows[HEAD] == "Choose a file. UP/DOWN: move   ENTER: view   ESC: back", rows
+    assert rows[HEAD + 1] == "> " + "BOOT.CFG".ljust(26) + "/ROBCO/BOOT.CFG", rows
     key(vm, "select")
     state(vm)
     return dump(vm)[1]
@@ -134,3 +136,89 @@ def test_write_is_counted_and_refused(board, maint_test_image, good_files, need_
         m = close(vm)
         assert (m["result"], m["probe_rc"], m["writes"]) == ("fail", "-5", "1"), m
     assert digest(sd) == before
+
+
+# The chooser: rows 15 to 27 list the files, row 28 holds the note.
+NOTE = 28
+
+
+def chooser(vm):
+    start(vm, "view_file")
+    return events(vm, "view_list")[-1], dump(vm)[1]
+
+
+def open_nth(vm, n):
+    """Moves to file n, from 0, opens it, and returns the screen."""
+    for _ in range(n):
+        key(vm, "down")
+    key(vm, "select")
+    state(vm)
+    return dump(vm)[1]
+
+
+@pytest.mark.parametrize("n, path", [(1, "/UOS/UOS.CFG"), (2, "/UOS/DEVICES.CFG")],
+                         ids=["uos", "devices"])
+def test_fixed_paths(board, maint_image, good_files, need_mtools, tmp_path, n, path):
+    files = dict(good_files)
+    files["/UOS/UOS.CFG"] = b"[uos]\nname = uos\n"
+    files["/UOS/DEVICES.CFG"] = b"[devices]\nprinter = none\n"
+    sd = card(tmp_path, files)
+    with alone(maint_image, board, sd=sd) as vm:
+        lst, rows = chooser(vm)
+        assert (lst["files"], lst["users"], lst["home"]) == ("3", "0", "missing"), lst
+        assert rows[HEAD + 2] == "  " + "UOS.CFG".ljust(26) + "/UOS/UOS.CFG", rows
+        assert rows[HEAD + 3] == "  " + "DEVICES.CFG".ljust(26) + "/UOS/DEVICES.CFG", rows
+        assert rows[NOTE] == "No user TERMINAL.CFG: no /UOS/HOME folder.", rows
+        rows = open_nth(vm, n)
+        assert rows[HEAD] == f"{path}: {len(files[path])} bytes", rows
+        assert rows[TEXT0] == files[path].decode().splitlines()[0], rows
+        m = close(vm)
+        assert (m["result"], m["path"], m["writes"]) == ("ok", path, "0"), m
+
+
+def test_two_users_one_terminal_cfg(board, maint_image, good_files, need_mtools, tmp_path):
+    files = dict(good_files)
+    files["/UOS/HOME/ALICE/TERMINAL.CFG"] = b"[terminal]\ncolour = amber\n"
+    files["/UOS/HOME/BOB/NOTES.TXT"] = b"no config here\n"
+    sd = card(tmp_path, files)
+    before = digest(sd)
+    with alone(maint_image, board, sd=sd) as vm:
+        lst, rows = chooser(vm)
+        assert (lst["files"], lst["users"], lst["cut"], lst["home"]) == ("4", "2", "0", "ok"), lst
+        assert rows[HEAD + 4] == "  " + "ALICE/TERMINAL.CFG".ljust(26) + \
+            "/UOS/HOME/ALICE/TERMINAL.CFG", rows
+        assert rows[HEAD + 5] == "" and rows[NOTE] == "", rows
+        rows = open_nth(vm, 3)
+        assert rows[TEXT0:TEXT0 + 2] == ["[terminal]", "colour = amber"], rows
+        m = close(vm)
+        assert (m["result"], m["path"]) == ("ok", "/UOS/HOME/ALICE/TERMINAL.CFG"), m
+    assert digest(sd) == before
+
+
+def test_seventeen_users(board, maint_image, good_files, need_mtools, tmp_path):
+    files = dict(good_files)
+    for i in range(1, 18):
+        files[f"/UOS/HOME/U{i:02d}/TERMINAL.CFG"] = b"user %d\n" % i
+    sd = card(tmp_path, files)
+    with alone(maint_image, board, sd=sd) as vm:
+        lst, rows = chooser(vm)
+        assert (lst["files"], lst["users"], lst["cut"]) == ("19", "16", "1"), lst
+        assert rows[NOTE] == "The list is cut: only the first 16 user folders of /UOS/HOME.", rows
+        # 13 rows show; DOWN scrolls to the last offered file, U16.
+        rows = open_nth(vm, 18)
+        assert rows[HEAD] == "/UOS/HOME/U16/TERMINAL.CFG: 8 bytes", rows
+        names = [m["name"] for m in events(vm, "view_choose")]
+        assert names[-1] == "U16/TERMINAL.CFG" and "U17/TERMINAL.CFG" not in names, names
+        assert close(vm)["result"] == "ok"
+
+
+def test_home_with_no_terminal_cfg(board, maint_image, good_files, need_mtools, tmp_path):
+    files = dict(good_files)
+    files["/UOS/HOME/BOB/NOTES.TXT"] = b"x"
+    sd = card(tmp_path, files)
+    with alone(maint_image, board, sd=sd) as vm:
+        lst, rows = chooser(vm)
+        assert (lst["files"], lst["users"], lst["home"]) == ("3", "1", "ok"), lst
+        assert rows[NOTE] == "No user TERMINAL.CFG: none found in /UOS/HOME.", rows
+        key(vm, "back")
+        assert wait_result(vm, "view_file", 1)["why"] == "cancel"
