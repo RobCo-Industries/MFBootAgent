@@ -9,7 +9,6 @@ static void todo(mt_run_t *r)
     mt_text(r, "Not built yet.");
 }
 
-void mt_tool_images(mt_run_t *r) { todo(r); }
 void mt_tool_view(mt_run_t *r) { todo(r); }
 void mt_tool_clock(mt_run_t *r) { todo(r); }
 void mt_tool_users(mt_run_t *r) { todo(r); }
