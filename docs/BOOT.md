@@ -13,7 +13,7 @@ Every marker line has the form `@RC stage=bootagent ev=<event> ...` on the PL011
 3. The trust rule runs in `robco_start()`. `handoff trusted=0|1` gives the result.
 4. Cold, the stage copies the firmware's ATAGS or DTB to `0x00101000`, as a first stage does.
 5. The screen. See [Screen](#screen). `screen` reports the path it took.
-6. The tick, the GPIO buttons, the console input and the maintenance port start. The stage waits up to 300 ms for the buttons' stuck-line guard. `input` reports each back end and the live ones.
+6. The tick, the GPIO buttons, the console input and the maintenance port start. The stage waits up to 300 ms for the buttons' stuck-line guard. The wait takes no event: the presses the guard reports for held buttons stay queued for the menu. `input` reports each back end and the live ones.
 7. `selfcheck` prints the result of step 1. A failed self check is information only: the boot goes on.
 
 ### Screen
