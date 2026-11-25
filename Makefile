@@ -27,6 +27,8 @@ PYTHON     ?= python3
 PURE_SRCS  := \
               src/boot.c \
               src/bootcfg.c \
+              src/keymap.c \
+              src/maintscr.c \
               src/menu.c \
               src/menulines.c \
 
@@ -47,6 +49,11 @@ HOST_TEST_DIR := tests/host
 HOST_SRCS     := $(PURE_SRCS)
 HOST_INCLUDES := src
 
+# The library's commit for the maintenance screen, from the CI workflow
+# pin, which check-pins holds equal to the submodule. No git needed.
+MFB_CORE_PIN := $(or $(shell sed -n 's/.*robco-ci\.yml@\([0-9a-f]\{12\}\).*/\1/p' .github/workflows/ci.yml 2>/dev/null | head -n 1),unknown)
+EXTRA_CFLAGS += -DMFB_CORE_PIN='"$(MFB_CORE_PIN)"'
+
 ifeq ($(wildcard $(ROBCO_CORE)/mk/robco.mk),)
 $(error $(ROBCO_CORE) is empty: run git submodule update --init)
 endif
@@ -57,6 +64,9 @@ include $(ROBCO_CORE)/mk/host.mk
 
 # Target tests boot the images built here; keep top-level targets serial.
 .NOTPARALLEL:
+
+# The pin is compiled into main.c: rebuild it when the pin moves.
+$(BUILD)/obj/src/main.o: .github/workflows/ci.yml
 
 # ---- Test operating images ------------------------------------------------
 

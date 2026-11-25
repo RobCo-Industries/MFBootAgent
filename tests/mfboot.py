@@ -5,11 +5,12 @@ import os
 import re
 import struct
 import tempfile
+import time
 import zlib
 
 from PIL import Image
 
-from harness.boot import boot, parse_markers
+from harness.boot import SCRIPT_DATA, SCRIPT_PORT, ScriptReply, boot, is_script_status, parse_markers
 from harness.sdimage import make_sd_image
 
 SLOT = 0x00200000
@@ -144,9 +145,51 @@ def dump(vm):
 
 
 def state(vm):
-    reply = vm.script("state", timeout=TIMEOUT)
-    assert reply.status == "ok" and len(reply.lines) == 1, reply
-    return dict(field.split("=", 1) for field in reply.lines[0].split())
+    """The state line, once the stage has taken every queued input event.
+
+    The port answers between input events, so a reply can come while
+    keys sent before it still wait in the queue. Asks again until
+    pending=0: then the stage handled and drew every earlier key.
+    """
+    deadline = time.monotonic() + TIMEOUT
+    while True:
+        reply = vm.script("state", timeout=TIMEOUT)
+        if not (reply.status == "ok" and len(reply.lines) == 1
+                and reply.lines[0].startswith("phase=")):
+            raise AssertionError(
+                f"state got {reply}, not a state line. An earlier raw write on the "
+                "port likely left a reply unread: send batches with batch(), which "
+                "reads every reply.")
+        st = dict(field.split("=", 1) for field in reply.lines[0].split())
+        if st["pending"] == "0":
+            return st
+        assert time.monotonic() < deadline, reply
+
+
+def batch(vm, commands, timeout=TIMEOUT):
+    """Sends `commands` to the port in one write and returns their replies.
+
+    One ScriptReply per command, in order. Waits for every status line, so
+    no reply is left for a later script() call to take as its own.
+    """
+    start = len(vm.lines(SCRIPT_PORT))
+    vm.send("".join(c + "\n" for c in commands), port=SCRIPT_PORT)
+    deadline = time.monotonic() + timeout
+    with vm._cond:
+        while True:
+            replies, data = [], []
+            for line in vm.lines(SCRIPT_PORT)[start:]:
+                if is_script_status(line):
+                    replies.append(ScriptReply(line, data))
+                    data = []
+                elif line.startswith(SCRIPT_DATA):
+                    data.append(line[len(SCRIPT_DATA):])
+            if len(replies) >= len(commands):
+                assert len(replies) == len(commands), (commands, replies)
+                return replies
+            left = deadline - time.monotonic()
+            assert left > 0, f"{len(replies)} of {len(commands)} replies to {commands}"
+            vm._cond.wait(min(left, 0.2))
 
 
 def key(vm, name):

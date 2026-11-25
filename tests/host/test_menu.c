@@ -134,7 +134,7 @@ TEST(r_reboots_in_every_state)
 
 TEST(other_keys_only_stop_the_countdown)
 {
-    static const unsigned keys[] = { INPUT_KEY_LEFT, INPUT_KEY_RIGHT, INPUT_KEY_BACK,
+    static const unsigned keys[] = { INPUT_KEY_LEFT, INPUT_KEY_RIGHT,
                                      INPUT_KEY_F1, INPUT_KEY_F4, INPUT_KEY_DIAL_PUSH };
     unsigned i;
 
@@ -160,6 +160,43 @@ TEST(other_keys_only_stop_the_countdown)
         CHECK_EQ(mfb_menu_event(&m, &dial), MFB_ACT_NONE);
         CHECK_EQ(m.counting, 1);
     }
+}
+
+TEST(maintenance_keys)
+{
+    input_event_t ev;
+
+    /* M or m from any backend, BACK from the buttons or the port. */
+    mfb_menu_init(&m, 3, 1, 5, 0);
+    CHECK_EQ(type('m'), MFB_ACT_MAINT);
+    CHECK_EQ(m.why, MFB_WHY_KEY);
+    CHECK_EQ(m.counting, 0);
+    CHECK_EQ(m.stopped, 1);
+    CHECK_EQ(type('M'), MFB_ACT_MAINT);
+    mfb_menu_init(&m, 3, 1, 5, 0);
+    ev = key(INPUT_KEY_BACK, INPUT_PRESS);
+    ev.source = INPUT_SRC_GPIO;
+    CHECK_EQ(mfb_menu_event(&m, &ev), MFB_ACT_MAINT);
+    CHECK_EQ(m.why, MFB_WHY_BUTTON);
+    CHECK_EQ(m.counting, 0);
+    ev.source = INPUT_SRC_SCRIPT;
+    m.why = MFB_WHY_KEY;
+    CHECK_EQ(mfb_menu_event(&m, &ev), MFB_ACT_MAINT);
+    CHECK_EQ(m.why, MFB_WHY_BUTTON);
+    /* ESC on the console is BACK from the serial source: it only stops the countdown. */
+    mfb_menu_init(&m, 3, 1, 5, 0);
+    ev.source = INPUT_SRC_SERIAL;
+    CHECK_EQ(mfb_menu_event(&m, &ev), MFB_ACT_NONE);
+    CHECK_EQ(m.counting, 0);
+    CHECK_EQ(m.sel, 1);
+    /* A held BACK does not open it again. */
+    mfb_menu_init(&m, 3, 1, -1, 0);
+    ev = key(INPUT_KEY_BACK, INPUT_REPEAT);
+    CHECK_EQ(mfb_menu_event(&m, &ev), MFB_ACT_NONE);
+    /* The wake-up NUL is no key: the countdown goes on. */
+    mfb_menu_init(&m, 3, 1, 5, 0);
+    CHECK_EQ(type('\0'), MFB_ACT_NONE);
+    CHECK_EQ(m.counting, 1);
 }
 
 TEST(countdown_to_zero)
@@ -270,4 +307,40 @@ TEST(single_entry)
     /* Zero entries count as one. */
     mfb_menu_init(&m, 0, 0, -1, 0);
     CHECK_EQ(m.count, 1);
+}
+
+static input_event_t port_req(int32_t seq)
+{
+    input_event_t ev = chr(0);
+
+    ev.source = INPUT_SRC_SCRIPT;
+    ev.value = seq;
+    return ev;
+}
+
+TEST(port_maint_in_queue_order)
+{
+    input_event_t ev = port_req(3);
+
+    /* The live request opens the screen; an older or dropped one does nothing. */
+    CHECK_EQ(mfb_port_maint(&ev, 3), MFB_PORT_OPEN);
+    CHECK_EQ(mfb_port_maint(&ev, 4), MFB_PORT_STALE);
+    CHECK_EQ(mfb_port_maint(&ev, 0), MFB_PORT_STALE);
+    /* Keys are no request, NUL from another source or with value 0 neither. */
+    ev = chr('m');
+    ev.source = INPUT_SRC_SCRIPT;
+    CHECK_EQ(mfb_port_maint(&ev, 3), MFB_PORT_NONE);
+    ev = port_req(0);
+    CHECK_EQ(mfb_port_maint(&ev, 3), MFB_PORT_NONE);
+    ev = port_req(3);
+    ev.source = INPUT_SRC_SERIAL;
+    CHECK_EQ(mfb_port_maint(&ev, 3), MFB_PORT_NONE);
+    ev = key(INPUT_KEY_SELECT, INPUT_PRESS);
+    ev.source = INPUT_SRC_SCRIPT;
+    CHECK_EQ(mfb_port_maint(&ev, 3), MFB_PORT_NONE);
+    /* Not a key for the menu either. */
+    ev = port_req(3);
+    mfb_menu_init(&m, 2, 0, 5, 0);
+    CHECK_EQ(mfb_menu_event(&m, &ev), MFB_ACT_NONE);
+    CHECK_EQ(m.counting, 1);
 }

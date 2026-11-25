@@ -13,7 +13,7 @@ Every marker line has the form `@RC stage=bootagent ev=<event> ...` on the PL011
 3. The trust rule runs in `robco_start()`. `handoff trusted=0|1` gives the result.
 4. Cold, the stage copies the firmware's ATAGS or DTB to `0x00101000`, as a first stage does.
 5. The screen. See [Screen](#screen). `screen` reports the path it took.
-6. The tick, the console input and the maintenance port start. `input` reports them.
+6. The tick, the GPIO buttons, the console input and the maintenance port start. The stage waits up to 300 ms for the buttons' stuck-line guard. The wait takes no event: the presses the guard reports for held buttons stay queued for the menu. `input` reports each back end and the live ones.
 7. `selfcheck` prints the result of step 1. A failed self check is information only: the boot goes on.
 
 ### Screen
@@ -57,13 +57,38 @@ The menu shows below the text already on the screen, with a blank row between. W
 | 1 to 8 | Select that entry, if it exists |
 | ENTER | Boot the selection |
 | R | Reboot through the watchdog |
+| M, or BACK from the buttons or the port | Open the [maintenance screen](#maintenance-screen) |
 | Any key | Stops the countdown |
 
-Keys come from the PL011, as ANSI sequences, and from the maintenance port's `key` and `char` commands.
+Keys come from the PL011, as ANSI sequences, from the GPIO buttons and from the maintenance port's `key` and `char` commands. `src/keymap.c` maps every event to one key. Only UP and DOWN repeat while held. LEFT and RIGHT do nothing. ESC on the PL011 is BACK from the serial source, and in the menu it only stops the countdown.
+
+### GPIO buttons
+
+The buttons use the example pins of BOARD_SUPPORT.md in RobCo-Core: UP 5, DOWN 6, LEFT 17, RIGHT 22, SELECT 26, BACK 27. Each is active low with the internal pull-up, debounced over 20 ms. Held keys repeat after 500 ms, then every 150 ms. If every line reads pressed for the 100 ms guard, the library disables the back end and the stage goes on with the others. QEMU reads every line as 0, so in QEMU the back end is always `disabled_stuck`. Button navigation is untested on hardware.
+
+### Maintenance screen
+
+It opens on `M`, on BACK from the buttons or the port, on the port's `maint` command, and at start when the boot info is trusted and has `boot_flags` bit 1 set. At start it takes the place of the countdown: the menu shows with no countdown, then the screen opens. Opening it any other way stops the countdown like a key. Closing it draws the menu again below it. The countdown does not start again.
+
+The port's `maint` goes through the input queue behind the keys sent before it, so the menu takes them in the order the port got them. `maint` then `key select` opens the screen, and SELECT acts inside it. `key select` then `maint` boots: the stage drops the request with `maint_drop why=boot` before the load, and a failed load does not open the screen later. When a key opens the screen before the request comes up, the stage drops the request with `maint_drop why=open`. A full queue answers `err busy`.
+
+The screen takes 18 rows below the text on screen, scrolling like the menu, and writes each of its rows in full. Rows: title, rule, five actions, the keys, then ten output rows. UP and DOWN move the bar, ENTER or SELECT runs the action, ESC, Q or BACK closes it.
+
+| Action | Does |
+|---|---|
+| Verify entries | Mounts the volume afresh, as in [Card changes](#card-changes), then runs the header read and `loader_load()` of a boot on every entry, without the jump. The OS slot is the work buffer, since nothing runs there yet. One row per entry, then the counts. A failed mount gives one `E02 IO` line. |
+| System | Board, memory, boot volume, trust, `boot_flags` received, version, RobCo-Core pin, screen path |
+| Configuration | The `config` result, default, timeout, entry count, and the `ignored`, `dup`, `bad` and `clamped` counts |
+| Reboot | `reboot source=screen`, then the watchdog, as the port's `reboot` |
+| Back to the boot menu | Closes the screen |
+
+The RobCo-Core pin comes from the CI workflow pin, which `make check-pins` holds equal to the submodule.
 
 The countdown boots the default entry no sooner than `timeout` seconds after the menu shows, by `timer_now_ms()`. The menu loop waits for input at most until the next second of the countdown, so the boot starts on the first pass after the time is up. The countdown uses the unsigned difference of two `timer_now_ms()` values, so it also works across the wrap of that counter after 2^32 ms.
 
 ### 5. Load and handoff
+
+Before step 1 the stage mounts the volume afresh, as in [Card changes](#card-changes). A failure there gives `E02 IO` and `ev=remount what=<step> rc=<code>`, and the menu stays.
 
 1. The stage reads the first 0x60 bytes of the file and checks the header, in this order:
 
@@ -79,8 +104,20 @@ The countdown boots the default entry no sooner than `timeout` seconds after the
    `loader_load()` has no hook between its header steps, so the stage reads the header itself before it calls the loader. An image with a wrong subtype fails with `bounds` even when its ABI or CRC is also wrong.
 2. `loader_load()` reads the file into the OS slot, `0x00400000` to `0x00FFFFFF`, 12 MiB. It runs the header steps again, then step 6, the CRC (`crc`).
 3. The stage unmounts the volume, writes `Starting <name>.` and moves the cursor to the next row.
-4. `bootinfo_build()` fills the block at `0x00100000` with stage id 2. Then the stage writes `boot_dev` (1, SD on EMMC), `boot_part_lba`, `boot_path` and `cmdline`, clears the fallback flag and reseals the block. Other flags stay as the previous stage set them.
+4. `bootinfo_build()` fills the block at `0x00100000` with stage id 2. The stage sets `boot_flags` bit 1 when the user opened the maintenance screen during this boot, keeps it when it arrived set in a trusted block, and clears it otherwise. Then it writes `boot_dev` (1, SD on EMMC), `boot_part_lba`, `boot_path` and `cmdline`, clears the fallback flag and reseals the block. Other flags stay as the previous stage set them.
 5. `robco_handoff()` enters the image with r2 set to the firmware blob copy.
+
+### Card changes
+
+The SD slot has no card detect, so the stage cannot see a card change. Verify entries and each boot from the menu call `mfb_remount()`:
+
+1. `fs_unmount("sd")`. It syncs the device first and keeps the volume when the sync fails. With the card out, or after a failed `sd_init()`, the sync returns `BLK_ERR_NOMEDIA`.
+2. On a failure, `sd_init()` and then `fs_unmount("sd")` again. A card that answers lets the sync pass. When `sd_init()` fails, the step is `sd`, with its code.
+3. `sd_init()` and `fs_mount_boot()` by the boot rule.
+
+After any failure, `sd_deinit()` leaves the driver not ready. A volume still mounted then fails every read with `BLK_ERR_NOMEDIA`, so it never reads another card. The next call starts from step 1 and recovers once a card answers. RobCo-Core has no call that drops a volume without the sync. Dropping it loses nothing: the stage opens files for reading only.
+
+`BOOT.CFG` is read once, at start. A card change keeps the menu entries and the Configuration page from the start. Verify entries checks those entries against the card in the slot, and a boot loads the entry's path from it. `boot_part_lba` comes from the mount the image loaded from. The System page shows the volume mounted now with its first block and size. When the last mount failed, it shows `not mounted` with the failed step and its code, then a `Last good` line: the last volume that mounted, or `none since power-on`. Re-reading `BOOT.CFG` would change the menu under the user, so a new card's entries need a reboot.
 
 ### 6. Failures
 
@@ -99,7 +136,7 @@ In the order they print.
 | `boot` | `midr soc base board_rev mem entry_mode version` | First line |
 | `handoff` | `trusted` | Result of the trust rule |
 | `screen` | `fb console kept unknown scheme path adopt_fb adopt_console grid` | `kept=1` when both adopt calls succeeded. `unknown` is the number of adopted cells the console does not know, 0 on the `init` path. `path` is `adopt` or `init`. `adopt_fb` and `adopt_console` are the return codes of the adopt calls, or `none` when a call did not run. `grid` checks the adopted grid against the menu's minimum: `ok`, `cols` for too few columns, `rows` for too few rows, or `none` when `console_adopt()` did not succeed. |
-| `input` | `serial mini script` | Return codes of the input back ends |
+| `input` | `serial mini script gpio buttons repeat live` | Return codes of the input back ends and of `input_set_repeat()`. `buttons` is the GPIO status name, such as `active` or `disabled_stuck`. `live` lists the back ends that deliver events, such as `serial,script`. |
 | `selfcheck` | `rc size` | Result of `rimg_self_check()` |
 | `mount` | `lba blocks` | The boot volume mounted |
 | `config` | `result path`, then `entries ignored dup unknown bad clamped default_found nopath`, or `why` | `result` is `ok`, `missing` or `bad`. With `bad`, `why` is `read` with `rc`, `syntax` with `line`, or `empty` with the counters except `default_found`. See [Counters](#counters). |
@@ -113,7 +150,13 @@ In the order they print.
 | `bootinfo` | `flags caps dev part_lba path cmdline_len scheme cx cy` | The boot info as handed over |
 | `jump` | `entry name` | Last line before the handoff |
 | `idle` | | The stage stopped and waits |
-| `reboot` | `source` | `key` or `maint` |
+| `reboot` | `source` | `key`, `maint` or `screen` |
+| `maint_open` | `why` | The maintenance screen opened: `key`, `button`, `port` or `flag` |
+| `maint_drop` | `why` | The port's `maint` was answered `ok` but did not open the screen: `boot` when a boot was chosen first, `open` when the screen was already open |
+| `maint_action` | `name` | An action ran: `verify`, `system`, `config`, `reboot` or `back` |
+| `verify_entry` | `index name path result` | One entry checked. `result` is `ok` or the `error` code. |
+| `verify_done` | `result entries good failed`, with `what rc` for `result=io` | The verify action ended. `result` is `ok` or `io`. |
+| `maint_close` | | The screen closed |
 
 ## Error codes
 
@@ -221,5 +264,9 @@ An entry header is `entry`, one or more spaces or tabs, then the name. The stage
 | A file that parses with no usable entry | Treated like a bad file: the one default entry |
 | A boot agent or other non-OS subtype | Refused with code 6, `bounds`, before the ABI and CRC steps |
 | Boot volume markers | `/ROBCO/BOOT.CFG` and `/ROBCO/UOS.SYS` |
-| `boot_flags` after this stage | Fallback bit cleared, other bits kept |
+| `boot_flags` after this stage | Fallback bit cleared. Bit 1 set when the user opened the maintenance screen or it arrived set in a trusted block, clear otherwise. Other bits kept. |
+| Markers of the maintenance screen | `maint_open`, `maint_drop`, `maint_action`, `verify_entry`, `verify_done`, `maint_close`, and `source=screen` for `reboot` |
+| `input` keys | The spec's keys, plus `gpio buttons repeat live` |
+| Which BACK opens the screen | BACK from the buttons or the port. ESC on the PL011 only stops the countdown, so ESC can close the screen without opening it again. |
+| `maint` on the port outside the menu | Refused with `err not in the menu`, or `err already open` while the screen shows or a request waits. Queued behind earlier keys, see [Maintenance screen](#maintenance-screen). |
 | The screen after a handoff | Adopted, see [Screen](#screen) |

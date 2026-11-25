@@ -13,8 +13,10 @@ What works, in QEMU on `raspi0`, `raspi1ap`, `raspi2b` and `raspi3b`:
 - It reads `/ROBCO/BOOT.CFG` and shows up to 8 usable entries, with a countdown when `timeout` is set.
 - It checks the chosen image's header and subtype, loads it and hands off with the boot info.
 - A failed load shows an error line and the menu stays.
+- A maintenance screen checks every entry and shows the system and the configuration.
+- GPIO buttons drive the menu. They are untested: QEMU cannot press them.
 
-What does not exist yet: the maintenance mode, the diagnostics image and GPIO button navigation.
+What does not exist yet: the diagnostics image.
 
 Nothing has been tried on real hardware.
 
@@ -35,6 +37,7 @@ make run BOARD=raspi2b   # boot build/sd.img in QEMU
 
 ## Documents
 
+- [docs/USER_MANUAL.md](docs/USER_MANUAL.md): the menu, the keys, the errors and the maintenance screen, for users.
 - [docs/BOOT.md](docs/BOOT.md): the boot flow, the markers, the error codes and `BOOT.CFG`.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the files and the memory use.
 - [docs/BUILD.md](docs/BUILD.md): tools, targets and the card.
