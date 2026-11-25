@@ -3,7 +3,7 @@ a no, ESC, Ctrl-C and a wrong key at the question; a yes, read back from the car
 
 import pytest
 
-from maintimg import (USERS_DAT, USERS_DEF, alone, card, card_names, char, command,  # noqa: F401
+from maintimg import (USERS_DAT, USERS_DEF, alone, bad_cluster, card, card_names, char, command,  # noqa: F401
                       dump, events, good_files, key, maint_cfg, maint_image, read_card_file, run,
                       state, wait_result)
 
@@ -116,3 +116,53 @@ def test_yes_with_no_old_file(board, maint_image, good_files, need_mtools, tmp_p
         char(vm, "Y")
         assert wait_result(vm, "restore_users", 1)["result"] == "ok"
     assert read_card_file(sd, USERS_DAT) == DEFAULT
+
+
+def test_config_does_not_read(board, maint_image, good_files, need_mtools, tmp_path):
+    """BOOT.CFG that does not read: the start says so, the tool stays off with the code."""
+    sd = users_card(tmp_path, good_files)
+    bad_cluster(sd, b"BOOT    CFG")
+    with alone(maint_image, board, sd=sd) as vm:
+        cfg = events(vm, "config")[0]
+        assert (cfg["result"], cfg["why"], cfg["restore_users"]) == ("bad", "read", "off"), cfg
+        rc = cfg["rc"]
+        assert int(rc) < 0, cfg
+        _, rows = dump(vm)
+        assert rows[12] == f"BOOT.CFG does not read: error {rc}. Restore users is off.", rows
+        run_users(vm)
+        m = wait_result(vm, "restore_users", 1)
+        assert (m["result"], m["why"], m["rc"]) == ("off", "config", rc), m
+        assert events(vm, "ask") == [], vm.serial
+        state(vm)
+        _, rows = dump(vm)
+        assert rows[14] == f"BOOT.CFG does not read: error {rc}. Restore users is off.", rows
+        assert rows[12] == f"Restore users: OFF. Off: BOOT.CFG error {rc}.", rows
+    assert read_card_file(sd, USERS_DAT) == OLD
+
+
+def test_config_line_does_not_parse(board, maint_image, good_files, need_mtools, tmp_path):
+    sd = users_card(tmp_path, good_files, cfg_extra=ON + b"no equals here\n")
+    with alone(maint_image, board, sd=sd) as vm:
+        cfg = events(vm, "config")[0]
+        assert (cfg["result"], cfg["why"]) == ("bad", "syntax"), cfg
+        line = cfg["line"]
+        _, rows = dump(vm)
+        assert rows[12] == f"BOOT.CFG line {line} does not parse. Restore users is off.", rows
+        run_users(vm)
+        m = wait_result(vm, "restore_users", 1)
+        assert (m["result"], m["why"], m["line"]) == ("off", "config", line), m
+    assert read_card_file(sd, USERS_DAT) == OLD
+
+
+def test_default_does_not_stat(board, maint_image, good_files, need_mtools, tmp_path):
+    """/UOS does not read: the tool cannot tell whether the default is good and refuses."""
+    sd = users_card(tmp_path, good_files)
+    bad_cluster(sd, b"UOS        ")
+    before = sd.read_bytes()
+    with alone(maint_image, board, sd=sd) as vm:
+        run_users(vm)
+        m = wait_result(vm, "restore_users", 1)
+        assert (m["result"], m["why"]) == ("fail", "stat"), m
+        assert int(m["rc"]) < 0, m
+        assert events(vm, "ask") == [], vm.serial
+    assert sd.read_bytes() == before

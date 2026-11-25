@@ -89,3 +89,28 @@ TEST(a_bad_line_leaves_it_off)
     CHECK_EQ(c.restore_users, 0);
     CHECK_EQ(line, 3u);
 }
+
+/* The start says when it could not read [maint]; a missing file is a known off. */
+TEST(not_known_says_so)
+{
+    static const char bad[] = "[maint]\nrestore_users = on\nthis line has no equals\n";
+    char out[160];
+    mt_cfg_t c;
+    unsigned line = 0;
+
+    mt_cfg_default(&c);
+    CHECK(mt_cfg_known(&c));
+    mt_cfg_status(out, sizeof(out), &c);
+    CHECK_STR(out, "");
+    c.read_rc = -17;
+    CHECK(!mt_cfg_known(&c));
+    mt_cfg_status(out, sizeof(out), &c);
+    CHECK_STR(out, "BOOT.CFG does not read: error -17. Restore users is off.");
+    CHECK(strlen(out) < 79);
+    CHECK_EQ(mt_cfg_parse(bad, sizeof(bad) - 1, &c, &line), MT_CFG_SYNTAX);
+    CHECK_EQ(c.restore_users, 0);
+    CHECK_EQ(c.syntax_line, line);
+    CHECK(!mt_cfg_known(&c));
+    mt_cfg_status(out, sizeof(out), &c);
+    CHECK_STR(out, "BOOT.CFG line 3 does not parse. Restore users is off.");
+}

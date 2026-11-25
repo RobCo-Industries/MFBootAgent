@@ -593,7 +593,12 @@ static void mount_card(void)
             dg_u64(blocks, vol.block_count));
 }
 
-/* [maint] of BOOT.CFG, read through the guard: the read writes nothing. */
+/*
+ * [maint] of BOOT.CFG, read through the guard: the read writes nothing.
+ * Only a missing file means off by the setting. A read error or a bad
+ * line leaves the tool off without knowing the setting: mt.cfg keeps the
+ * code, and the status row at start says so.
+ */
 static void read_config(void)
 {
     size_t len = 0;
@@ -602,14 +607,16 @@ static void read_config(void)
 
     mt_cfg_default(&mt.cfg);
     if (!mt.mounted) {
+        mt.cfg.read_rc = mt.sd_rc != 0 ? mt.sd_rc : mt.mount_rc;
         mt_mark("config result=bad path=" MT_CFG_PATH " why=read rc=%d restore_users=off",
-                mt.sd_rc != 0 ? mt.sd_rc : mt.mount_rc);
+                mt.cfg.read_rc);
         return;
     }
     rc = fs_read_file(MT_CFG_PATH, cfg_text, sizeof(cfg_text), &len);
     if (rc == FS_ERR_NOENT) {
         mt_mark("config result=missing path=" MT_CFG_PATH " restore_users=off");
     } else if (rc != 0) {
+        mt.cfg.read_rc = rc;
         mt_mark("config result=bad path=" MT_CFG_PATH " why=read rc=%d restore_users=off", rc);
     } else if (mt_cfg_parse(cfg_text, len, &mt.cfg, &line) != MT_CFG_OK) {
         mt_mark("config result=bad path=" MT_CFG_PATH " why=syntax line=%u restore_users=off",
@@ -665,7 +672,11 @@ void robco_main(void)
     for (i = 0; i < MT_TOOLS; i++) {
         results[i] = MT_NONE;
     }
-    k_strncpy(status, mt_line_idle(), sizeof(status));
+    /* A [maint] that could not be read says so until the first tool runs. */
+    mt_cfg_status(status, sizeof(status), &mt.cfg);
+    if (status[0] == '\0') {
+        k_strncpy(status, mt_line_idle(), sizeof(status));
+    }
     mt_menu_init(&menu, MT_TOOLS);
     uart_putc('\n');
     draw_menu(1);

@@ -35,9 +35,7 @@ static struct {
     char path[FS_PATH_MAX + 1];
 } files[FILES_MAX];
 static unsigned nfiles;
-static int home_cut;        /* a 17th user folder was not listed */
-static int home_missing;    /* no /UOS/HOME */
-static unsigned home_users; /* user folders listed */
+static mt_home_list_t home;
 
 /* Builds files[]: the fixed paths, then the users' TERMINAL.CFG. Reads only. */
 static void list_files(void)
@@ -49,30 +47,30 @@ static void list_files(void)
     int rc;
 
     nfiles = 0;
-    home_cut = 0;
-    home_missing = 0;
-    home_users = 0;
+    mt_home_list_init(&home);
     for (i = 0; i < FIXED; i++) {
         k_snprintf(files[nfiles].name, sizeof(files[nfiles].name), "%s", fixed[i].name);
         k_snprintf(files[nfiles].path, sizeof(files[nfiles].path), "%s", fixed[i].path);
         nfiles++;
     }
-    if (fs_opendir(&d, MT_HOME_DIR) != 0) {
-        home_missing = 1;
-    } else {
+    if (mt_home_opened(&home, fs_opendir(&d, MT_HOME_DIR))) {
         while ((rc = fs_readdir(&d, &st)) == 1) {
             char path[FS_PATH_MAX + 1];
 
             if (!mt_home_user(st.name, st.attr, st.is_dir, st.leftover)) {
                 continue;
             }
-            if (home_users == MT_HOME_MAX) {
-                home_cut = 1;
+            if (home.users == MT_HOME_MAX) {
+                home.cut = 1;
                 break;
             }
-            home_users++;
-            if (mt_home_path(path, sizeof(path), st.name, FS_PATH_MAX) != 0 ||
-                fs_stat(path, &f) != 0 || f.is_dir) {
+            home.users++;
+            if (mt_home_path(path, sizeof(path), st.name, FS_PATH_MAX) != 0) {
+                home.long_paths++;
+                continue;
+            }
+            k_memset(&f, 0, sizeof(f));
+            if (!mt_home_offer(&home, fs_stat(path, &f), f.is_dir)) {
                 continue;
             }
             k_snprintf(files[nfiles].name, sizeof(files[nfiles].name), "%s/" MT_HOME_FILE,
@@ -80,10 +78,15 @@ static void list_files(void)
             k_snprintf(files[nfiles].path, sizeof(files[nfiles].path), "%s", path);
             nfiles++;
         }
+        if (rc < 0) {
+            mt_home_read_failed(&home, rc);
+        }
         (void)fs_closedir(&d);
     }
-    mt_mark("view_list files=%u users=%u cut=%d home=%s", nfiles, home_users, home_cut,
-            home_missing ? "missing" : "ok");
+    mt_mark("view_list files=%u users=%u cut=%d home=%s home_rc=%d stat_errors=%u stat_rc=%d "
+            "long=%u", nfiles, home.users, home.cut,
+            home.dir == MT_HOME_OK ? "ok" : home.dir == MT_HOME_MISSING ? "missing" : "error",
+            home.dir_rc, home.stat_errors, home.stat_rc, home.long_paths);
 }
 
 /* Work rows: 0 the header, 1 to PAGE the text, then the footer. */
@@ -115,15 +118,7 @@ static void draw_choice(unsigned sel, unsigned top)
         }
         mt_work_line(1 + i, line, 0);
     }
-    if (home_cut) {
-        k_snprintf(line, sizeof(line), "The list is cut: only the first %u user folders of "
-                   MT_HOME_DIR ".", MT_HOME_MAX);
-    } else if (nfiles == FIXED) {
-        k_snprintf(line, sizeof(line), "No user TERMINAL.CFG: %s.",
-                   home_missing ? "no " MT_HOME_DIR " folder" : "none found in " MT_HOME_DIR);
-    } else {
-        line[0] = '\0';
-    }
+    mt_home_note(line, sizeof(line), &home);
     mt_work_line(ROW_NOTE, line, 0);
     mt_mark("view_choose sel=%u name=%s", sel + 1, files[sel].name);
 }
@@ -269,7 +264,16 @@ static void page(const char *path, uint32_t size)
     }
 }
 
-void mt_tool_view(mt_run_t *r)
+/* A fault of the listing fails the tool and its text says so, whatever the view gave. */
+static void list_fault(mt_run_t *r)
+{
+    if (mt_home_fault(&home)) {
+        r->result = MT_FAIL;
+        mt_text(r, MT_HOME_DIR " read error %d.", mt_home_fault_rc(&home));
+    }
+}
+
+static void view_file(mt_run_t *r)
 {
     fs_stat_t st;
     int i;
@@ -280,6 +284,10 @@ void mt_tool_view(mt_run_t *r)
         return;
     }
     i = choose();
+    if (mt_home_fault(&home)) {
+        /* The listing saw a fault: whatever the view gives, the tool fails. */
+        mt_keys(r, "list=error list_rc=%d", mt_home_fault_rc(&home));
+    }
     if (i < 0) {
         r->result = MT_REFUSED;
         mt_keys(r, "why=cancel");
@@ -318,4 +326,11 @@ void mt_tool_view(mt_run_t *r)
     mt_keys(r, "size=%u shown=%u lines=%u binary=%u truncated=%d", (unsigned)st.size,
             (unsigned)view.len, view.lines, (unsigned)view.binary, st.size > view.len);
     mt_text(r, "%s, %u lines.", files[i].name, view.lines);
+}
+
+void mt_tool_view(mt_run_t *r)
+{
+    mt_home_list_init(&home);
+    view_file(r);
+    list_fault(r);
 }

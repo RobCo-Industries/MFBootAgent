@@ -62,4 +62,24 @@ void mt_clock_text(const mt_clock_form_t *f, char *out, size_t size);
 int mt_clock_apply(const datetime_t *want, int (*set)(const datetime_t *dt),
                    int (*get)(datetime_t *out), datetime_t *got, int *rc);
 
+/*
+ * The probe: rtc_init()'s code and rtc_present(). MT_CP_ABSENT only for
+ * RTC_ERR_ABSENT, nothing at 0x68. Any other failure, such as an I2C
+ * timeout, could not tell whether a chip is there: MT_CP_ERROR.
+ */
+#define MT_CP_OK        0
+#define MT_CP_ABSENT    1
+#define MT_CP_ERROR     2
+int mt_clock_probe(int init_rc, int present);
+
+/*
+ * The chip's time before the form: rtc_get()'s code. MT_CN_INVALID for
+ * RTC_ERR_HALTED and RTC_ERR_DATA, a chip that answered with no valid
+ * time. MT_CN_ERROR for any other code: the read could not tell.
+ */
+#define MT_CN_OK        0
+#define MT_CN_INVALID   1
+#define MT_CN_ERROR     2
+int mt_clock_now(int get_rc);
+
 #endif

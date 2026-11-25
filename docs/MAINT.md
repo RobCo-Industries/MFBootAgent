@@ -83,6 +83,32 @@ Results:
 | OFF | Restore users is off in `BOOT.CFG` |
 | REFUSED | The person said no or cancelled. Nothing was written. |
 
+### Not there, or could not tell
+
+A tool reports OK only for what it measured and never hides a fault it saw, as in `DIAG.SYS`. A library call that fails gives one of two answers. "Not there" is a measured answer. "Could not tell" is a fault: the person sees it as an error with its code, the marker carries the code, and it is never a pass or a silent skip.
+
+| Call | Not there | Could not tell |
+|---|---|---|
+| `fs_opendir()`, `fs_stat()`, `fs_read_file()` | `FS_ERR_NOENT` | Any other error, such as `FS_ERR_IO`, `FS_ERR_CORRUPT` or `FS_ERR_GONE` |
+| `fs_readdir()` | Never: 0 is the end of the folder | Any error |
+| `rtc_init()` | `RTC_ERR_ABSENT` | Any other error, such as an I2C timeout |
+| `rtc_get()` before the form | Never. `RTC_ERR_HALTED` and `RTC_ERR_DATA` are a chip with no valid time. | Any other error |
+
+Each place in the image:
+
+| Place | Not there | Could not tell |
+|---|---|---|
+| `[maint]` of `BOOT.CFG` at start | `config result=missing`, the tool off | `config result=bad why=read rc`, the tool off. The status row at start says "BOOT.CFG does not read: error N. Restore users is off." A bad line says the same with its line. |
+| Restore users, the setting | OFF, `why=setting` | OFF, `why=config` with `rc` or `line`. The row shows the error. |
+| Restore users, the default file | ABSENT, `why=missing` | FAILED, `why=stat rc`. Nothing is written. |
+| Check card, the walk | Not used: every entry the folder lists must open | A `card_error` per failure. The tool fails. |
+| Check images, `/ROBCO` | FAILED, `dir=missing` | FAILED, `dir_rc` |
+| View file, a fixed path | ABSENT, `why=missing` | FAILED, `why=read rc` |
+| View file, `/UOS/HOME` | The note "no /UOS/HOME folder" | The note "/UOS/HOME does not read: error N." and `home=error home_rc` in `view_list`. The tool fails with `list=error list_rc`, whatever file the person viewed. |
+| View file, a user's `TERMINAL.CFG` | Not offered | Offered, counted in `stat_errors`. The note says so, the tool fails, and opening it shows the error. |
+| Set clock, the probe | ABSENT, `addr=0x68 rc` | FAILED, `why=probe rc` |
+| Set clock, the time before the form | "not valid", `clock_form now=invalid rc` | "read error N", `clock_form now=error rc`, and `now_rc` in the tool marker |
+
 ### Check card
 
 The tool walks the boot volume depth first from `/`. It opens every folder and reads every file to its end, in 32 KiB steps. Between steps it runs the input queue, so the keys, the screen and the maintenance port keep working on a full card. A progress line and a `progress` marker come at most every 500 ms. ESC, BACK or Ctrl-C stops it, and a stopped walk fails with `why=stopped`.
@@ -116,9 +142,9 @@ The tool offers these files by name, with their paths:
 | `DEVICES.CFG` | `/UOS/DEVICES.CFG` |
 | `<user>/TERMINAL.CFG` | `/UOS/HOME/<user>/TERMINAL.CFG`, one per user |
 
-UOS keeps a `TERMINAL.CFG` per user. The tool lists the folders of `/UOS/HOME` in directory order, at most 16, and offers `<user>/TERMINAL.CFG` for each folder that holds one. A 17th user folder is not listed, and the chooser says the list is cut. With no `/UOS/HOME`, or no `TERMINAL.CFG` in it, the chooser offers the three fixed files and says so. The listing only reads, behind the guard.
+UOS keeps a `TERMINAL.CFG` per user. The tool lists the folders of `/UOS/HOME` in directory order, at most 16, and offers `<user>/TERMINAL.CFG` for each folder that holds one. A 17th user folder is not listed, and the chooser says the list is cut. With no `/UOS/HOME`, or no `TERMINAL.CFG` in it, the chooser offers the three fixed files and says so. A `/UOS/HOME` that does not read is not "no folder": see [Not there, or could not tell](#not-there-or-could-not-tell). The listing only reads, behind the guard.
 
-`fs_readdir()` already skips `.` and `..`. The library gives no other skip rule, but it gives each entry's attributes, so the tool also skips names that start with `.`, hidden and system entries, and the work names of `fs_write_file_atomic()`. A path longer than 255 characters is not offered.
+`fs_readdir()` already skips `.` and `..`. The library gives no other skip rule, but it gives each entry's attributes, so the tool also skips names that start with `.`, hidden and system entries, and the work names of `fs_write_file_atomic()`. A path longer than 255 characters is not offered, and the note counts it.
 
 The chooser shows 13 rows and scrolls. UP and DOWN move, ENTER opens, ESC cancels with `why=cancel`. A file that is offered but missing gives ABSENT. Each listing prints a `view_list` marker.
 
@@ -134,7 +160,7 @@ The page holds 14 lines. DOWN or RIGHT shows the next page, UP or LEFT the one b
 
 ### Set clock
 
-The tool starts I2C1 and looks for the clock chip at `0x68` with `rtc_init()`. With no chip it says "No clock chip at 0x68." and gives ABSENT.
+The tool starts I2C1 and looks for the clock chip at `0x68` with `rtc_init()`. With no chip it says "No clock chip at 0x68." and gives ABSENT. A probe that fails otherwise, such as on an I2C timeout, gives FAILED with `why=probe`.
 
 The form starts at the chip's time, or 2000-01-01 00:00:00 when the chip's time is not valid. It has six fields: year, month, day, hour, minute and second, in UTC.
 
@@ -161,9 +187,11 @@ It is off unless `BOOT.CFG` has `restore_users = on` in `[maint]`. The reason is
 | Case | Result | What happens |
 |---|---|---|
 | The setting is not `on` | OFF, `why=setting` | The row says the setting disables it. Nothing is read or written. |
+| `BOOT.CFG` did not read or parse | OFF, `why=config` with `rc` or `line` | The row shows the error. Nothing is read or written. |
 | No default file, or a folder of that name | ABSENT, `why=missing` | It says so. Nothing changes. |
 | An empty default file | FAILED, `why=empty` | It says so. Nothing changes. |
 | A default file above 1 MiB | FAILED, `why=large` | Nothing changes |
+| The stat of the default file fails with an error other than "missing" | FAILED, `why=stat` with `rc` | Nothing changes |
 | The question gets a no | REFUSED, `why=no` | Nothing changes |
 | A yes | OK | The copy, then "Done." |
 | The read of the default or the write fails after a yes | FAILED, `why=read` or `write` | See below |
@@ -189,7 +217,7 @@ restore_users = on
 - A value other than `on` or `off` counts in `bad`. An unknown key counts in `unknown`.
 - The section name, the key and the words are case-insensitive.
 - `[maint]` given twice acts as one section. A key given twice takes its last value.
-- A missing file, a read error or a line that does not parse leaves the tool off.
+- A missing file, a read error or a line that does not parse leaves the tool off. A read error or a bad line also shows on the status row at start, with its code or line.
 - The shipped `boot/BOOT.CFG` has no `[maint]`, so the tool is off.
 
 ## Markers
@@ -213,11 +241,11 @@ The stage name is `maint`. Each line starts with `@RC stage=maint`. The image pr
 | `progress` | `name pct`, at most one per 500 ms |
 | `card_error` | `path what rc` |
 | `image` | `path size rc` |
-| `view_list` | `files users cut home`. `home` is `ok` or `missing`. |
+| `view_list` | `files users cut home home_rc stat_errors stat_rc long`. `home` is `ok`, `missing` or `error`. |
 | `view_choose` | `sel name` |
 | `view_page` | `first last lines` |
 | `i2c` | `rc`, at the first use of I2C |
-| `clock_form` | `now`, the chip's time or `invalid` |
+| `clock_form` | `now`, the chip's time, or `invalid` or `error` with `rc` |
 | `clock_invalid` | `value` |
 | `ask` | `what`, then `value` or `from to size` |
 | `tool_drop` | `name why`, as `diag_drop` in `DIAG.SYS` |
@@ -229,9 +257,9 @@ The stage name is `maint`. Each line starts with `@RC stage=maint`. The image pr
 |---|---|
 | `check_card` | `dirs files bytes errors free_bytes total_bytes fat`, `first_path first_what` on a failure, `ms`, `why=stopped`, `writes` |
 | `check_images` | `images bad`, `bad_path bad_rc` for the first bad image, `dir_rc`, `why=stopped`, `writes`. No `/ROBCO`: `images=0 dir=missing writes`. |
-| `view_file` | `path`, then `size shown lines binary truncated`, or `why`: `missing`, `isdir`, `read` with `rc`, `cancel`. Then `writes`. |
-| `set_clock` | `chip`, then `set read`, or `why`: `cancel`, `no`, `set`, `readback`. No chip: `addr=0x68 rc`. |
-| `restore_users` | `why` when not OK, `from to size` after the question, `rc` on an error |
+| `view_file` | `list=error list_rc` when the listing saw a fault, `path`, then `size shown lines binary truncated`, or `why`: `missing`, `isdir`, `read` with `rc`, `cancel`. Then `writes`. |
+| `set_clock` | `chip`, `now_rc` when the time did not read, then `set read`, or `why`: `cancel`, `no`, `set`, `readback`. No chip: `addr=0x68 rc`. A failed probe: `why=probe addr=0x68 rc`. |
+| `restore_users` | `why` when not OK, `from to size` after the question, `rc` on an error, `rc` or `line` with `why=config` |
 | `restart` | None. `reboot` follows. |
 
 Without a card, the tools that need it give `why=sd rc` with ABSENT for no card, or `why=mount rc` with FAILED.

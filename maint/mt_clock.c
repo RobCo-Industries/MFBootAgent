@@ -4,6 +4,7 @@
 
 #include <robco/datetime.h>
 #include <robco/klibc.h>
+#include <robco/rtc.h>
 
 #include "mt_clock.h"
 
@@ -169,4 +170,20 @@ int mt_clock_apply(const datetime_t *want, int (*set)(const datetime_t *dt),
         return MT_CF_EDIFF;
     }
     return MT_CF_OK;
+}
+
+int mt_clock_probe(int init_rc, int present)
+{
+    if (present && init_rc == 0) {
+        return MT_CP_OK;
+    }
+    return init_rc == RTC_ERR_ABSENT ? MT_CP_ABSENT : MT_CP_ERROR;
+}
+
+int mt_clock_now(int get_rc)
+{
+    if (get_rc == 0) {
+        return MT_CN_OK;
+    }
+    return get_rc == RTC_ERR_HALTED || get_rc == RTC_ERR_DATA ? MT_CN_INVALID : MT_CN_ERROR;
 }

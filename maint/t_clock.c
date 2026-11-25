@@ -55,23 +55,41 @@ void mt_tool_clock(mt_run_t *r)
         return;
     }
     rc = rtc_init();
-    if (!rtc_present()) {
+    ap = mt_clock_probe(rc, rtc_present());
+    if (ap == MT_CP_ABSENT) {
         r->result = MT_ABSENT;
         mt_keys(r, "addr=0x68 rc=%d", rc);
         mt_text(r, "No clock chip at 0x68.");
         mt_work_line(0, "No clock chip at 0x68. Nothing to set.", 1);
         return;
     }
+    if (ap == MT_CP_ERROR) {
+        /* The probe could not tell whether a chip is there. */
+        r->result = MT_FAIL;
+        mt_keys(r, "why=probe addr=0x68 rc=%d", rc);
+        mt_text(r, "Clock probe error %d.", rc);
+        k_snprintf(line, sizeof(line), "The probe of 0x68 failed: error %d. Nothing written.", rc);
+        mt_work_line(0, line, 1);
+        return;
+    }
     mt_keys(r, "chip=%s", chip_name(rtc_chip()));
     rc = rtc_get(&now);
-    if (rc == 0) {
+    ap = mt_clock_now(rc);
+    if (ap == MT_CN_OK) {
         (void)dt_format_iso(&now, now_text, sizeof(now_text));
-    } else {
+    } else if (ap == MT_CN_INVALID) {
         k_snprintf(now_text, sizeof(now_text), "not valid (%d)", rc);
+    } else {
+        k_snprintf(now_text, sizeof(now_text), "read error %d", rc);
+        mt_keys(r, "now_rc=%d", rc);
     }
-    mt_clock_init(&form, rc == 0 ? &now : NULL);
+    mt_clock_init(&form, ap == MT_CN_OK ? &now : NULL);
     draw_form(&form, now_text);
-    mt_mark("clock_form now=%s", rc == 0 ? now_text : "invalid");
+    if (ap == MT_CN_OK) {
+        mt_mark("clock_form now=%s", now_text);
+    } else {
+        mt_mark("clock_form now=%s rc=%d", ap == MT_CN_INVALID ? "invalid" : "error", rc);
+    }
     for (;;) {
         int e;
 

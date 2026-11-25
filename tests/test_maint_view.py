@@ -6,7 +6,7 @@ import hashlib
 import pytest
 
 import mfboot as mf
-from maintimg import (alone, card, command, dump, events, good_files, key, maint_image,  # noqa: F401
+from maintimg import (alone, bad_cluster, card, command, dump, events, good_files, key, maint_image,  # noqa: F401
                       maint_test_image, start, state, wait_result)
 
 # Work rows 14 to 29: the header, 14 text rows, the footer.
@@ -222,3 +222,27 @@ def test_home_with_no_terminal_cfg(board, maint_image, good_files, need_mtools, 
         assert rows[NOTE] == "No user TERMINAL.CFG: none found in /UOS/HOME.", rows
         key(vm, "back")
         assert wait_result(vm, "view_file", 1)["why"] == "cancel"
+
+
+def test_home_does_not_read(board, maint_image, good_files, need_mtools, tmp_path):
+    """A /UOS/HOME the card cannot read is an error with its code, never "no folder"."""
+    files = dict(good_files)
+    files["/UOS/HOME/ALICE/TERMINAL.CFG"] = b"[terminal]\n"
+    sd = card(tmp_path, files)
+    bad_cluster(sd, b"HOME       ")
+    before = digest(sd)
+    with alone(maint_image, board, sd=sd) as vm:
+        lst, rows = chooser(vm)
+        assert (lst["home"], lst["files"]) == ("error", "3"), lst
+        assert int(lst["home_rc"]) < 0, lst
+        assert rows[NOTE] == "/UOS/HOME does not read: error %s. Users may be missing." % \
+            lst["home_rc"], rows
+        # The fixed files still open; the tool fails on the fault it saw.
+        rows = open_nth(vm, 0)
+        assert rows[HEAD].startswith("/ROBCO/BOOT.CFG: "), rows
+        m = close(vm)
+        assert (m["result"], m["list"], m["list_rc"], m["writes"]) == \
+            ("fail", "error", lst["home_rc"], "0"), m
+        state(vm)
+        assert dump(vm)[1][12] == "View file: FAILED. /UOS/HOME read error %s." % lst["home_rc"]
+    assert digest(sd) == before

@@ -19,10 +19,25 @@ typedef struct {
     int restore_users;  /* 1 only for a last value of "on" */
     unsigned bad;       /* values other than on and off */
     unsigned unknown;   /* other keys in [maint] */
+    int read_rc;        /* BOOT.CFG could not be read: the card, mount or fs code, else 0 */
+    unsigned syntax_line; /* the line that does not parse, else 0 */
 } mt_cfg_t;
 
-/* restore_users off, no count. */
+/* restore_users off, no count, no error. */
 void mt_cfg_default(mt_cfg_t *c);
+
+/*
+ * 1 when the start knows the setting: BOOT.CFG read and parsed, or it is
+ * missing, which means off. 0 when a read error or a bad line left the
+ * tool off without knowing what the file says.
+ */
+int mt_cfg_known(const mt_cfg_t *c);
+
+/*
+ * The status row at start when the setting is not known, else "":
+ * "BOOT.CFG does not read: error -1. Restore users is off."
+ */
+void mt_cfg_status(char *out, size_t size, const mt_cfg_t *c);
 
 /*
  * Reads [maint] from `len` bytes of BOOT.CFG text. Section and key names

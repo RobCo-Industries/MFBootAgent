@@ -5,10 +5,11 @@
 #include "mt_ui.h"
 #include "mt_users.h"
 
-int mt_users_check(int on, int stat_rc, int missing_rc, int is_dir, uint32_t size)
+int mt_users_check(int on, int cfg_known, int stat_rc, int missing_rc, int is_dir,
+                   uint32_t size)
 {
     if (!on) {
-        return MT_US_OFF;
+        return cfg_known ? MT_US_OFF : MT_US_CONFIG;
     }
     if (stat_rc == missing_rc || (stat_rc == 0 && is_dir)) {
         return MT_US_MISSING;
@@ -39,6 +40,10 @@ int mt_users_result(int check, int answer, int read_rc, int write_rc, const char
     case MT_US_OFF:
         r = MT_OFF;
         w = "setting";
+        break;
+    case MT_US_CONFIG:
+        r = MT_OFF;
+        w = "config";
         break;
     case MT_US_MISSING:
         r = MT_ABSENT;

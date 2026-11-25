@@ -4,6 +4,8 @@
 
 #include <robco/datetime.h>
 #include <robco/input.h>
+#include <robco/i2c.h>
+#include <robco/rtc.h>
 
 #include "mt_clock.h"
 #include "rc_test.h"
@@ -214,4 +216,21 @@ TEST(apply_writes_reads_back_and_checks)
     CHECK_EQ(apply(0, 0, -1, &rc), MT_CF_EDIFF);
     CHECK_EQ(apply(0, 0, 3, &rc), MT_CF_EDIFF);
     CHECK_EQ(apply(0, 0, 3600, &rc), MT_CF_EDIFF);
+}
+
+/* Only "nothing at 0x68" is absent. A bus error could not tell. */
+TEST(probe_absent_or_error)
+{
+    CHECK_EQ(mt_clock_probe(0, 1), MT_CP_OK);
+    CHECK_EQ(mt_clock_probe(RTC_ERR_ABSENT, 0), MT_CP_ABSENT);
+    CHECK_EQ(mt_clock_probe(I2C_ERR_TIMEOUT, 0), MT_CP_ERROR);
+    CHECK_EQ(mt_clock_probe(I2C_ERR_CLKT, 0), MT_CP_ERROR);
+    CHECK_EQ(mt_clock_probe(I2C_ERR_NACK, 0), MT_CP_ERROR);
+    CHECK_EQ(mt_clock_probe(I2C_ERR_INIT, 0), MT_CP_ERROR);
+    CHECK_EQ(mt_clock_probe(0, 0), MT_CP_ERROR);
+    CHECK_EQ(mt_clock_now(0), MT_CN_OK);
+    CHECK_EQ(mt_clock_now(RTC_ERR_HALTED), MT_CN_INVALID);
+    CHECK_EQ(mt_clock_now(RTC_ERR_DATA), MT_CN_INVALID);
+    CHECK_EQ(mt_clock_now(I2C_ERR_TIMEOUT), MT_CN_ERROR);
+    CHECK_EQ(mt_clock_now(RTC_ERR_ABSENT), MT_CN_ERROR);
 }

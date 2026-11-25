@@ -152,6 +152,18 @@ def card_names(sd, folder):
     return sorted(os.path.basename(p.rstrip("/")) for p in out.stdout.split())
 
 
+def bad_cluster(sd, name83):
+    """Points the short directory entry `name83` (11 bytes) past the volume's last
+    cluster, so the file system reads it as corrupt: an error that is not "missing"."""
+    data = bytearray(sd.read_bytes())
+    off = data.find(name83)
+    assert off >= 0 and off % 32 == 0, name83
+    assert data.find(name83, off + 32) < 0, name83
+    data[off + 20:off + 22] = b"\x00\x00"
+    data[off + 26:off + 28] = (0xFFF0).to_bytes(2, "little")
+    sd.write_bytes(bytes(data))
+
+
 def maint_cfg(extra):
     """WAIT_CFG with `extra` text after it, such as a [maint] section."""
     return mfboot.WAIT_CFG + extra

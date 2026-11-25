@@ -18,6 +18,7 @@
 void mt_tool_users(mt_run_t *r)
 {
     fs_stat_t st;
+    char line[MT_LINE_MAX];
     const char *why = "";
     void *base = 0;
     size_t room = robco_heap_high(&base);
@@ -35,8 +36,18 @@ void mt_tool_users(mt_run_t *r)
     if (mt.cfg.restore_users) {
         rc = fs_stat(MT_USERS_DEF, &st);
     }
-    check = mt_users_check(mt.cfg.restore_users, rc, FS_ERR_NOENT, st.is_dir, st.size);
+    check = mt_users_check(mt.cfg.restore_users, mt_cfg_known(&mt.cfg), rc, FS_ERR_NOENT,
+                           st.is_dir, st.size);
     switch (check) {
+    case MT_US_CONFIG:
+        mt_cfg_status(line, sizeof(line), &mt.cfg);
+        mt_work_line(0, line, 1);
+        if (mt.cfg.read_rc != 0) {
+            mt_text(r, "Off: BOOT.CFG error %d.", mt.cfg.read_rc);
+        } else {
+            mt_text(r, "Off: BOOT.CFG line %u bad.", mt.cfg.syntax_line);
+        }
+        break;
     case MT_US_OFF:
         mt_work_line(0, "Off. BOOT.CFG must have [maint] restore_users = on.", 1);
         mt_text(r, "Off in BOOT.CFG.");
@@ -86,6 +97,13 @@ void mt_tool_users(mt_run_t *r)
     }
     if (check == MT_US_STAT) {
         mt_keys(r, "rc=%d", rc);
+    }
+    if (check == MT_US_CONFIG) {
+        if (mt.cfg.read_rc != 0) {
+            mt_keys(r, "rc=%d", mt.cfg.read_rc);
+        } else {
+            mt_keys(r, "line=%u", mt.cfg.syntax_line);
+        }
     }
     if (check == MT_US_ASK) {
         mt_keys(r, "from=" MT_USERS_DEF " to=" MT_USERS_DAT " size=%u", (unsigned)st.size);

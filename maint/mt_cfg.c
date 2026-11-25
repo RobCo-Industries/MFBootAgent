@@ -26,6 +26,26 @@ void mt_cfg_default(mt_cfg_t *c)
     c->restore_users = 0;
     c->bad = 0;
     c->unknown = 0;
+    c->read_rc = 0;
+    c->syntax_line = 0;
+}
+
+int mt_cfg_known(const mt_cfg_t *c)
+{
+    return c->read_rc == 0 && c->syntax_line == 0;
+}
+
+void mt_cfg_status(char *out, size_t size, const mt_cfg_t *c)
+{
+    if (c->read_rc != 0) {
+        k_snprintf(out, size, "BOOT.CFG does not read: error %d. Restore users is off.",
+                   c->read_rc);
+    } else if (c->syntax_line != 0) {
+        k_snprintf(out, size, "BOOT.CFG line %u does not parse. Restore users is off.",
+                   c->syntax_line);
+    } else if (size != 0) {
+        out[0] = '\0';
+    }
 }
 
 static int on_key(const char *section, const char *key, const char *value, unsigned line,
@@ -65,6 +85,7 @@ int mt_cfg_parse(const char *text, size_t len, mt_cfg_t *c, unsigned *err_line)
     }
     if (rc != 0) {
         c->restore_users = 0;
+        c->syntax_line = line != 0 ? line : 1;
         return MT_CFG_SYNTAX;
     }
     return MT_CFG_OK;

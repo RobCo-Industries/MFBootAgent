@@ -38,3 +38,75 @@ TEST(paths)
     CHECK_EQ(mt_home_path(out, sizeof(out), user, FS_PATH_MAX), -1);
     CHECK_EQ(mt_home_path(out, 10, "ALICE", FS_PATH_MAX), -1);
 }
+
+/* Only FS_ERR_NOENT is "not there". */
+TEST(fs_kind)
+{
+    CHECK_EQ(mt_fs_kind(0), MT_FS_THERE);
+    CHECK_EQ(mt_fs_kind(FS_ERR_NOENT), MT_FS_NONE);
+    CHECK_EQ(mt_fs_kind(FS_ERR_IO), MT_FS_UNKNOWN);
+    CHECK_EQ(mt_fs_kind(FS_ERR_CORRUPT), MT_FS_UNKNOWN);
+    CHECK_EQ(mt_fs_kind(FS_ERR_GONE), MT_FS_UNKNOWN);
+    CHECK_EQ(mt_fs_kind(FS_ERR_TIMEOUT), MT_FS_UNKNOWN);
+}
+
+/* A /UOS/HOME that does not read is no missing folder. */
+TEST(home_listing_states)
+{
+    char note[160];
+    mt_home_list_t l;
+
+    mt_home_list_init(&l);
+    CHECK(!mt_home_opened(&l, FS_ERR_NOENT));
+    CHECK_EQ(l.dir, MT_HOME_MISSING);
+    CHECK(!mt_home_fault(&l));
+    mt_home_note(note, sizeof(note), &l);
+    CHECK_STR(note, "No user TERMINAL.CFG: no /UOS/HOME folder.");
+
+    mt_home_list_init(&l);
+    CHECK(!mt_home_opened(&l, FS_ERR_IO));
+    CHECK_EQ(l.dir, MT_HOME_ERROR);
+    CHECK(mt_home_fault(&l));
+    CHECK_EQ(mt_home_fault_rc(&l), FS_ERR_IO);
+    mt_home_note(note, sizeof(note), &l);
+    CHECK_STR(note, "/UOS/HOME does not read: error -1. Users may be missing.");
+    CHECK(strlen(note) < 79);
+
+    mt_home_list_init(&l);
+    CHECK(mt_home_opened(&l, 0));
+    mt_home_note(note, sizeof(note), &l);
+    CHECK_STR(note, "No user TERMINAL.CFG: none found in /UOS/HOME.");
+    CHECK(mt_home_offer(&l, 0, 0));
+    mt_home_note(note, sizeof(note), &l);
+    CHECK_STR(note, "");
+    mt_home_read_failed(&l, FS_ERR_CORRUPT);
+    CHECK(mt_home_fault(&l));
+    CHECK_EQ(mt_home_fault_rc(&l), FS_ERR_CORRUPT);
+    mt_home_note(note, sizeof(note), &l);
+    CHECK_STR(note, "/UOS/HOME does not read: error -17. Users may be missing.");
+}
+
+/* A missing TERMINAL.CFG is not offered; a stat that could not tell is offered and counted. */
+TEST(home_offer)
+{
+    char note[160];
+    mt_home_list_t l;
+
+    mt_home_list_init(&l);
+    CHECK(mt_home_opened(&l, 0));
+    CHECK(!mt_home_offer(&l, FS_ERR_NOENT, 0));
+    CHECK(!mt_home_offer(&l, 0, 1));
+    CHECK(!mt_home_fault(&l));
+    CHECK(mt_home_offer(&l, FS_ERR_IO, 0));
+    CHECK(mt_home_offer(&l, FS_ERR_CORRUPT, 0));
+    CHECK_EQ(l.offered, 2);
+    CHECK_EQ(l.stat_errors, 2);
+    CHECK(mt_home_fault(&l));
+    CHECK_EQ(mt_home_fault_rc(&l), FS_ERR_IO);
+    mt_home_note(note, sizeof(note), &l);
+    CHECK_STR(note, "2 user TERMINAL.CFG do not read: error -1.");
+    mt_home_list_init(&l);
+    l.long_paths = 1;
+    mt_home_note(note, sizeof(note), &l);
+    CHECK_STR(note, "1 user folders have a path too long to open.");
+}
