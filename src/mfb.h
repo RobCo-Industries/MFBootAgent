@@ -10,6 +10,7 @@
 #include <robco/loader.h>
 
 #include "bootcfg.h"
+#include "maintreq.h"
 #include "maintscr.h"
 
 /* The library's commit, from the CI workflow pin. The Makefile passes it. */
@@ -45,6 +46,9 @@ typedef struct {
     int32_t maint_req;  /* the port's request waiting in the queue, or 0 */
     int32_t maint_seq;  /* the last request number given */
     int user_maint;     /* the user opened the maintenance screen during this boot */
+    int req;            /* MFB_REQ_*: the maintenance request found this boot */
+    int req_rc;         /* the failed delete's code, or 0 */
+    char req_line[MFB_REQ_LINE_MAX + 1];  /* the request line, empty for none */
 } mfb_state_t;
 
 extern mfb_state_t mfb;
@@ -85,7 +89,11 @@ void mfb_cfg_info(mfb_ms_cfg_t *c);
 
 /* ---- maintui.c ---- */
 
-/* Shows the maintenance screen until the user closes it. why: MFB_WHY_*. */
-void mfb_maint_run(int why);
+/*
+ * Shows the maintenance screen until the user closes it. why: MFB_WHY_*.
+ * skip_back: the first BACK does nothing, see mfb_start_skip_back().
+ * Returns 1 when the user chose to start the maintenance image, else 0.
+ */
+int mfb_maint_run(int why, int skip_back);
 
 #endif

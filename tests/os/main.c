@@ -116,7 +116,7 @@ void robco_main(void)
     const robco_bootinfo_t *bi = (const robco_bootinfo_t *)ROBCO_BOOTINFO_ADDR;
     uint32_t sctlr;
     uint32_t want_caps = ROBCO_CAP_FB | ROBCO_CAP_PL011 | ROBCO_CAP_MINIUART | ROBCO_CAP_SD;
-    uint32_t known_flags = ROBCO_BOOT_COLD | ROBCO_BOOT_MAINT;
+    uint32_t known_flags = ROBCO_BOOT_COLD | ROBCO_BOOT_MAINT | ROBCO_BOOT_MAINT_REQ;
     int v;
 
     crc_own_image();

@@ -25,10 +25,10 @@ VERIFY_DONE = re.compile(r"@RC stage=bootagent ev=verify_done [^\n]*\n")
 TITLE = "MFBOOT AGENT V0.1.0 MAINTENANCE"
 SCREEN = [
     TITLE,
-    "========================================",
     "> Verify entries",
     "  System",
     "  Configuration",
+    "  Start the maintenance image",
     "  Reboot",
     "  Back to the boot menu",
     "UP/DOWN: move   ENTER: run   ESC or Q: back to the boot menu",
@@ -64,7 +64,7 @@ def open_by_key(vm):
 
 def run_item(vm, index, done=None):
     """Moves the bar to action `index` from the top and runs it."""
-    for _ in range(5):
+    for _ in range(6):
         key(vm, "up")
     for _ in range(index):
         key(vm, "down")
@@ -120,7 +120,7 @@ def test_open_by_key_golden_and_boot(board, mfboot_image, test_os, need_mtools, 
         key(vm, "down")
         state(vm)
         rows = screen_rows(vm)
-        assert rows[2:5] == ["  Verify entries", "  System", "> Configuration"], rows
+        assert rows[1:4] == ["  Verify entries", "  System", "> Configuration"], rows
         # Q closes it: the menu shows again below it and the boot goes on.
         char(vm, "q")
         vm.wait_for(CLOSE, timeout=TIMEOUT)
@@ -229,7 +229,7 @@ def test_state_answers_between_queued_keys(board, mfboot_image, test_os, need_mt
         early = replies[2].lines[0]
         assert re.search(r" pending=[1-9]", early), early
         assert state(vm)["pending"] == "0"
-        assert screen_rows(vm)[2:5] == ["  Verify entries", "  System", "> Configuration"]
+        assert screen_rows(vm)[1:4] == ["  Verify entries", "  System", "> Configuration"]
 
 
 def test_button_back_opens_and_esc_does_not(board, mfboot_image, test_os, need_mtools,
@@ -257,7 +257,7 @@ def test_button_back_opens_and_esc_does_not(board, mfboot_image, test_os, need_m
         key(vm, "left")
         key(vm, "right")
         assert state(vm)["maint"] == "1"
-        assert screen_rows(vm)[2] == "> Verify entries"
+        assert screen_rows(vm)[1] == "> Verify entries"
         assert not events(vm, "maint_action")
 
 
@@ -301,7 +301,7 @@ def test_system_and_config_pages(board, mfboot_image, test_os, need_mtools, tmp_
         ], page
         assert (c["dup"], c["clamped"]) == ("1", "1"), c
         # The last action returns to the menu.
-        run_item(vm, 4, CLOSE)
+        run_item(vm, 5, CLOSE)
         assert events(vm, "maint_action")[-1]["name"] == "back"
         assert [m["name"] for m in events(vm, "maint_action")] == ["system", "config", "back"]
         assert state(vm)["maint"] == "0"
@@ -414,7 +414,7 @@ def test_reboot_action(board, mfboot_image, test_os, need_mtools, tmp_path):
     with alone(mfboot_image, board, card(tmp_path, os_files(test_os))) as vm:
         vm.wait_for(READY, timeout=TIMEOUT)
         open_by_key(vm)
-        for _ in range(3):
+        for _ in range(4):
             key(vm, "down")
         key(vm, "select")
         vm.wait_for("ev=reboot source=screen", timeout=TIMEOUT)

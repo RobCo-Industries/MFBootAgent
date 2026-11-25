@@ -132,7 +132,8 @@ static void verify(void)
     MFB_MARK("verify_done result=ok entries=%u good=%u failed=%u", mfb_cfg.count, good, failed);
 }
 
-static void run(unsigned item)
+/* Runs one action. Returns 1 for the action that starts the maintenance image. */
+static int run(unsigned item)
 {
     static mfb_ms_page_t page;
     mfb_ms_sys_t sys;
@@ -151,23 +152,32 @@ static void run(unsigned item)
         mfb_cfg_info(&c);
         show_page(page, mfb_ms_config(page, &c));
         break;
+    case MFB_MS_START:
+        return 1;
     case MFB_MS_REBOOT:
         mfb_reboot("screen");
     default:
         break;
     }
+    return 0;
 }
 
-void mfb_maint_run(int why)
+int mfb_maint_run(int why, int skip_back)
 {
+    static mfb_ms_page_t page;
     input_event_t ev;
     unsigned item = 0;
     unsigned old = 0;
+    int start = 0;
     int act;
 
-    mfb_ms_init(&ms, 0);
+    mfb_ms_init(&ms, skip_back);
     top = mfb_place(MFB_MS_ROWS);
     draw_all();
+    if (why == MFB_WHY_REQUEST) {
+        /* The request line, if any, and the notice of a failed delete. */
+        show_page(page, mfb_ms_request(page, mfb.req, mfb.req_rc, mfb.req_line));
+    }
     park_cursor();
     MFB_MARK("maint_open why=%s", mfb_why_name(why));
     for (;;) {
@@ -183,9 +193,12 @@ void mfb_maint_run(int why)
             draw_item(ms.sel, 1);
         }
         if (act == MFB_MS_ACT_RUN) {
-            run(item);
+            start = run(item);
         }
         park_cursor();
+        if (start) {
+            break;
+        }
         if (act == MFB_MS_ACT_CLOSE) {
             /* The Back action, as against ESC, Q or BACK. */
             if (key == MFB_K_SELECT) {
@@ -195,4 +208,5 @@ void mfb_maint_run(int why)
         }
     }
     MFB_MARK("maint_close");
+    return start;
 }

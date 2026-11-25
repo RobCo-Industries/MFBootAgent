@@ -65,6 +65,8 @@ static loader_result_t res;
 static mfb_menu_t menu;
 static unsigned menu_top;       /* console row of the menu's first row */
 static unsigned menu_rows;      /* MFB_MENU_ROWS(mfb_cfg.count) */
+static int start_maint;         /* the screen asked to start the maintenance image */
+static mfb_entry_t maint_fixed; /* MAINT at MFB_MAINT_PATH, for a BOOT.CFG without one */
 
 
 void mfb_mark(const char *fmt, ...)
@@ -291,8 +293,10 @@ int mfb_mount(const char **what, int *rc)
  * that answers, the sync passes and the volume goes. The library has no
  * way to drop a volume without the sync.
  *
- * Nothing is lost by dropping the volume: this stage never writes to the
- * card. It opens files only with FS_READ (fs_read_file(), precheck() and
+ * Nothing is lost by dropping the volume. The stage writes one thing on
+ * the card: the delete of the maintenance request in check_request(),
+ * and fs_unlink() syncs the volume before it returns. Every other file
+ * is opened with FS_READ only (fs_read_file(), precheck() and
  * loader_load()), so FatFs holds no dirty sector.
  *
  * When the volume stays, sd_deinit() leaves the driver not ready, so
@@ -351,6 +355,34 @@ static void mount(void)
     }
     /* halt_io() never returns: here the mount worked and `vol` holds it. */
     MFB_MARK("mount lba=%u blocks=%u", (unsigned)good_lba, (unsigned)good_blocks);
+}
+
+/*
+ * Step 2b: the maintenance request, before the menu and the countdown.
+ * The plain name only, no recovery of work names. The file is read,
+ * then deleted, then acted on: the delete makes it one-shot. This
+ * delete is the only write the stage makes on the card.
+ */
+static void check_request(void)
+{
+    static char buf[MFB_REQ_READ_MAX];
+    fs_stat_t st;
+    size_t len = 0;
+    int rc;
+
+    mfb.req = MFB_REQ_NONE;
+    mfb.req_rc = 0;
+    mfb.req_line[0] = '\0';
+    k_memset(&st, 0, sizeof(st));
+    rc = fs_stat(MFB_REQ_PATH, &st);
+    if (mfb_req_present(rc, st.is_dir)) {
+        rc = fs_read_file(MFB_REQ_PATH, buf, sizeof(buf), &len);
+        (void)mfb_req_line(rc, buf, len, mfb.req_line, sizeof(mfb.req_line));
+        rc = fs_unlink(MFB_REQ_PATH);
+        mfb.req = mfb_req_result(rc);
+        mfb.req_rc = rc;
+    }
+    MFB_MARK("maint_req result=%s rc=%d", mfb_req_name(mfb.req), mfb.req_rc);
 }
 
 /* Step 3: the menu entries from BOOT.CFG, or the one default entry. */
@@ -555,7 +587,7 @@ void mfb_reboot(const char *source)
  * The maintenance screen, then the menu again below it. The menu state
  * stays as it was: the countdown does not start again.
  */
-static void maint_screen(int why)
+static void maint_screen(int why, int skip_back)
 {
     if (mfb.maint_req != 0) {
         /* A key opened it before the port's request came up: the screen it asked for shows. */
@@ -566,7 +598,7 @@ static void maint_screen(int why)
     if (why != MFB_WHY_FLAG) {
         mfb.user_maint = 1;
     }
-    mfb_maint_run(why);
+    start_maint = mfb_maint_run(why, skip_back);
     mfb.maint_open = 0;
     place_menu();
     draw_menu();
@@ -582,6 +614,10 @@ static int menu_loop(void)
     int act;
 
     for (;;) {
+        if (start_maint) {
+            /* The screen's Start the maintenance image: boot_selected() picks it. */
+            return MFB_ACT_BOOT;
+        }
         act = mfb_menu_tick(&menu, timer_now_ms());
         redraw();
         if (act == MFB_ACT_NONE &&
@@ -600,18 +636,18 @@ static int menu_loop(void)
             redraw();
         }
         if (act == MFB_ACT_MAINT) {
-            maint_screen(menu.why);
+            maint_screen(menu.why, 0);
         }
         if (act == MFB_ACT_REBOOT) {
             mfb_reboot("key");
         }
-        if (act == MFB_ACT_BOOT) {
+        if (act == MFB_ACT_BOOT || start_maint) {
             if (mfb.maint_req != 0) {
                 /* An earlier key or the countdown chose the boot: the request behind it goes. */
                 mfb.maint_req = 0;
                 MFB_MARK("maint_drop why=boot");
             }
-            return act;
+            return MFB_ACT_BOOT;
         }
     }
 }
@@ -619,8 +655,13 @@ static int menu_loop(void)
 /* Step 4: the menu. */
 static void show_menu(void)
 {
-    /* Bit 1 received: the maintenance screen opens in place of the countdown. */
-    int at_start = mfb_maint_at_start(mfb.inherited, mfb.flags_in);
+    /*
+     * A request, or bit 1 received: the maintenance screen opens in place
+     * of the countdown. A request with BACK held gives one screen: the
+     * BACK press the guard queued does not close it.
+     */
+    int why = MFB_WHY_FLAG;
+    int at_start = mfb_start_screen(mfb.req, mfb.inherited, mfb.flags_in, &why);
 
     mfb_menu_init(&menu, mfb_cfg.count, mfb_cfg.def, at_start ? MFB_TIMEOUT_NONE : mfb_cfg.timeout,
                   timer_now_ms());
@@ -636,7 +677,7 @@ static void show_menu(void)
     }
     MFB_MARK("ready");
     if (at_start) {
-        maint_screen(MFB_WHY_FLAG);
+        maint_screen(why, mfb_start_skip_back(why, input_key_down(INPUT_KEY_BACK)));
     }
 }
 
@@ -662,7 +703,7 @@ static void load_failed(const mfb_entry_t *e, int err)
  * Step 5: the boot info and the jump. The cursor goes to the row after
  * the menu, so the next stage writes below it.
  */
-static void handoff(const mfb_entry_t *e)
+static void handoff(const mfb_entry_t *e, uint32_t subtype)
 {
     robco_bootinfo_t *bi = (robco_bootinfo_t *)ROBCO_BOOTINFO_ADDR;
     char line[MFB_LINE_MAX];
@@ -679,7 +720,8 @@ static void handoff(const mfb_entry_t *e)
         console_cursor_show(0);
     }
     bootinfo_build(bi, ROBCO_STAGE_BOOTAGENT);
-    bi->boot_flags = mfb_maint_flag(bi->boot_flags, mfb.inherited, mfb.flags_in, mfb.user_maint);
+    bi->boot_flags = mfb_boot_flags(bi->boot_flags, mfb.inherited, mfb.flags_in, mfb.user_maint,
+                                    mfb.req, subtype);
     /*
      * handoff() has one caller, boot_selected(), and it runs only after
      * mfb_remount() returned 0 and the entry loaded from that volume.
@@ -740,14 +782,26 @@ int mfb_check_entry(const mfb_entry_t *e, loader_result_t *out)
 static void boot_selected(void)
 {
     const mfb_entry_t *e = &mfb_cfg.entry[menu.sel];
+    unsigned index = menu.sel + 1;
+    int via_key = menu.via == MFB_VIA_KEY;
     char line[MFB_LINE_MAX];
     char name[sizeof(res.hdr->name) + 1];
     const char *what;
     int rc;
 
+    if (start_maint) {
+        /* The screen's action: the MAINT entry, or MFB_MAINT_PATH with index 0. */
+        start_maint = 0;
+        via_key = 1;
+        e = mfb_maint_entry(&mfb_cfg, &index);
+        if (e == NULL) {
+            mfb_maint_fixed(&maint_fixed);
+            e = &maint_fixed;
+        }
+    }
     mfb.phase = MFB_PHASE_LOAD;
-    MFB_MARK("choose index=%u name=%s path=%s via=%s", menu.sel + 1, e->name, e->path,
-             menu.via == MFB_VIA_KEY ? "key" : "timeout");
+    MFB_MARK("choose index=%u name=%s path=%s via=%s", index, e->name, e->path,
+             via_key ? "key" : "timeout");
     redraw();
     mfb_line_loading(line, sizeof(line), e);
     put_row(after_row(MFB_ROW_START_AFTER), line, CONSOLE_ATTR_NORMAL, 1);
@@ -767,7 +821,7 @@ static void boot_selected(void)
     MFB_MARK("load path=%s size=%u crc=0x%08x addr=0x%08x name=%s subtype=%u", res.path,
              (unsigned)res.file_size, (unsigned)res.crc32, (unsigned)res.entry, name,
              (unsigned)res.hdr->subtype);
-    handoff(e);
+    handoff(e, res.hdr->subtype);
 }
 
 void robco_main(void)
@@ -775,6 +829,7 @@ void robco_main(void)
     mfb.phase = MFB_PHASE_INIT;
     entry();
     mount();
+    check_request();
     read_config();
     show_menu();
     for (;;) {
