@@ -78,18 +78,10 @@ void dg_mark(const char *fmt, ...)
 
 void dg_keys(dg_run_t *r, const char *fmt, ...)
 {
-    size_t n = k_strlen(r->keys);
     va_list ap;
 
-    if (n + 2 >= sizeof(r->keys)) {
-        return;
-    }
-    if (n != 0) {
-        r->keys[n++] = ' ';
-        r->keys[n] = '\0';
-    }
     va_start(ap, fmt);
-    k_vsnprintf(r->keys + n, sizeof(r->keys) - n, fmt, ap);
+    dg_keys_add(r->keys, sizeof(r->keys), fmt, ap);
     va_end(ap);
 }
 

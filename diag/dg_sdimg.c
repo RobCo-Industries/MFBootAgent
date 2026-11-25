@@ -14,7 +14,7 @@
 #define FILE_MAX (16u << 20)
 
 int dg_sd_check_image(const char *path, uint32_t size, char name[DG_SDIMG_NAME + 1],
-                      unsigned *subtype)
+                      unsigned *subtype, int *fs_rc)
 {
     static fs_file_t f;
     uint8_t head[RIMG_META_OFFSET];
@@ -27,7 +27,10 @@ int dg_sd_check_image(const char *path, uint32_t size, char name[DG_SDIMG_NAME +
     if (size == 0 || size < RIMG_META_OFFSET) {
         return dg_sd_head(size, 0, 0);
     }
-    if (fs_open(&f, path, FS_READ) != 0) {
+    *fs_rc = 0;
+    rc = fs_open(&f, path, FS_READ);
+    if (rc != 0) {
+        *fs_rc = rc;
         return DG_SDF_OPEN;
     }
     n = fs_read(&f, head, sizeof(head));

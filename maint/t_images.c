@@ -54,13 +54,13 @@ static int op_closedir(void *ctx)
     return fs_closedir(&c->d);
 }
 
-static int op_check(void *ctx, const dg_sd_entry_t *e)
+static int op_check(void *ctx, dg_sd_entry_t *e)
 {
     char path[FS_PATH_MAX + 1];
     scan_ctx_t *c = ctx;
 
     k_snprintf(path, sizeof(path), DIR_PATH "/%s", e->name);
-    return dg_sd_check_image(path, e->size, c->name, &c->subtype);
+    return dg_sd_check_image(path, e->size, c->name, &c->subtype, &e->fs_rc);
 }
 
 static void op_report(void *ctx, const dg_sd_entry_t *e, int out)

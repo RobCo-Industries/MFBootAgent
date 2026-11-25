@@ -276,6 +276,38 @@ const char *dg_u64(char out[DG_U64_SIZE], uint64_t v)
     return out;
 }
 
+static int keys_cut(const char *buf, size_t n)
+{
+    size_t k = sizeof(DG_KEYS_CUT) - 1;
+
+    return n >= k && k_strcmp(buf + n - k, DG_KEYS_CUT) == 0 &&
+           (n == k || buf[n - k - 1] == ' ');
+}
+
+void dg_keys_add(char *buf, size_t size, const char *fmt, va_list ap)
+{
+    const size_t reserve = 1 + sizeof(DG_KEYS_CUT); /* " keys_cut=1" and the end */
+    size_t n = k_strlen(buf);
+    size_t start = n;
+    int len;
+
+    if (keys_cut(buf, n)) {
+        return;
+    }
+    if (n != 0 && n + 1 + reserve <= size) {
+        buf[start++] = ' ';
+    }
+    if (start + reserve <= size) {
+        len = k_vsnprintf(buf + start, size - start - reserve + 1, fmt, ap);
+        if (len >= 0 && start + (size_t)len + reserve <= size) {
+            return;
+        }
+    }
+    /* It does not fit: drop it whole and mark the keys as cut. */
+    buf[n] = '\0';
+    k_snprintf(buf + n, size - n, "%s" DG_KEYS_CUT, n != 0 ? " " : "");
+}
+
 static int mval_plain(unsigned char c)
 {
     return c >= 0x21u && c <= 0x7eu && c != '%' && c != '=';

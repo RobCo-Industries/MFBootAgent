@@ -193,6 +193,7 @@ int dg_sd_scan(const dg_sd_ops_t *ops, int noent_rc, dg_sd_scan_t *s)
             if (out != DG_SDF_OK) {
                 if (s->bad == 0) {
                     s->first_bad = out;
+                    s->first_fs_rc = out == DG_SDF_OPEN ? e.fs_rc : 0;
                     k_strncpy(s->bad_name, e.name, sizeof(s->bad_name));
                     s->bad_name[sizeof(s->bad_name) - 1] = '\0';
                 }
@@ -273,8 +274,12 @@ void dg_sd_image_keys(char *out, size_t size, const char *dir, const dg_sd_entry
     char path[DG_MVAL_SIZE];
     char rc[DG_MVAL_SIZE];
 
-    k_snprintf(out, size, "path=%s size=%u rc=%s", enc_path(path, dir, e->name),
-               (unsigned)e->size, dg_mval(rc, sizeof(rc), dg_sd_outcome_name(outcome)));
+    int n = k_snprintf(out, size, "path=%s size=%u rc=%s", enc_path(path, dir, e->name),
+                       (unsigned)e->size, dg_mval(rc, sizeof(rc), dg_sd_outcome_name(outcome)));
+
+    if (outcome == DG_SDF_OPEN && n >= 0 && (size_t)n < size) {
+        k_snprintf(out + n, size - (size_t)n, " fs_rc=%d", e->fs_rc);
+    }
 }
 
 void dg_sd_bad_keys(char *out, size_t size, const char *dir, const dg_sd_scan_t *s)
@@ -282,8 +287,12 @@ void dg_sd_bad_keys(char *out, size_t size, const char *dir, const dg_sd_scan_t 
     char path[DG_MVAL_SIZE];
     char rc[DG_MVAL_SIZE];
 
-    k_snprintf(out, size, "bad_path=%s bad_rc=%s", enc_path(path, dir, s->bad_name),
-               dg_mval(rc, sizeof(rc), dg_sd_outcome_name(s->first_bad)));
+    int n = k_snprintf(out, size, "bad_path=%s bad_rc=%s", enc_path(path, dir, s->bad_name),
+                       dg_mval(rc, sizeof(rc), dg_sd_outcome_name(s->first_bad)));
+
+    if (s->first_bad == DG_SDF_OPEN && n >= 0 && (size_t)n < size) {
+        k_snprintf(out + n, size - (size_t)n, " bad_fs_rc=%d", s->first_fs_rc);
+    }
 }
 
 void dg_sd_row(char *out, size_t size, const dg_sd_entry_t *e, int outcome,
@@ -298,6 +307,9 @@ void dg_sd_row(char *out, size_t size, const dg_sd_entry_t *e, int outcome,
     } else if (outcome == DG_SDF_OK) {
         k_snprintf(out, size, "%-12s %8u  OK      %s subtype %u", name, (unsigned)e->size,
                    dg_sname(hdr, sizeof(hdr), hdr_name, 16), subtype);
+    } else if (outcome == DG_SDF_OPEN) {
+        k_snprintf(out, size, "%-12s %8u  FAILED  open, error %d", name, (unsigned)e->size,
+                   e->fs_rc);
     } else {
         k_snprintf(out, size, "%-12s %8u  FAILED  %s", name, (unsigned)e->size,
                    dg_sd_outcome_name(outcome));

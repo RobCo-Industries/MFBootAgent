@@ -99,6 +99,7 @@ typedef struct {
     const char *name;
     uint32_t size;
     int is_dir;
+    int fs_rc;          /* check sets it with DG_SDF_OPEN: the fs_open() code */
 } dg_sd_entry_t;
 
 /*
@@ -114,7 +115,7 @@ typedef struct {
     int (*opendir)(void *ctx);
     int (*readdir)(void *ctx, dg_sd_entry_t *e);
     int (*closedir)(void *ctx);
-    int (*check)(void *ctx, const dg_sd_entry_t *e);
+    int (*check)(void *ctx, dg_sd_entry_t *e);
     void (*report)(void *ctx, const dg_sd_entry_t *e, int outcome);
     int (*abort)(void *ctx);
 } dg_sd_ops_t;
@@ -135,6 +136,7 @@ typedef struct {
     unsigned others;    /* files with another name */
     int dir_rc;         /* the failed opendir or readdir result, else 0 */
     int first_bad;      /* outcome of the first bad image */
+    int first_fs_rc;    /* its fs code with DG_SDF_OPEN, else 0 */
     char bad_name[DG_SD_NAME_MAX]; /* name of the first bad image, "" if none */
 } dg_sd_scan_t;
 
@@ -148,13 +150,16 @@ int dg_sd_scan(const dg_sd_ops_t *ops, int noent_rc, dg_sd_scan_t *s);
 
 /*
  * The marker keys of one image of the scan: "path=<dir>/<name> size=<n>
- * rc=<outcome>". The path and the outcome go through dg_mval(). Both
+ * rc=<outcome>", then "fs_rc=<code>" for DG_SDF_OPEN. The path and the outcome go through dg_mval(). Both
  * images print them: MAINT.SYS as `image`, DIAG.SYS as `sd_image`.
  */
 void dg_sd_image_keys(char *out, size_t size, const char *dir, const dg_sd_entry_t *e,
                       int outcome);
 
-/* The keys of the first bad image: "bad_path=<dir>/<name> bad_rc=<outcome>", encoded. */
+/*
+ * The keys of the first bad image: "bad_path=<dir>/<name> bad_rc=<outcome>",
+ * encoded, then "bad_fs_rc=<code>" for DG_SDF_OPEN.
+ */
 void dg_sd_bad_keys(char *out, size_t size, const char *dir, const dg_sd_scan_t *s);
 
 /* The file column of a screen row: names longer than this end in "...". */
@@ -163,7 +168,8 @@ void dg_sd_bad_keys(char *out, size_t size, const char *dir, const dg_sd_scan_t 
 /*
  * One screen row of the scan, the same in both images: the file name in
  * DG_SD_NAME_COLS columns, its size, then "OK" with the header name and
- * subtype, "FAILED" with the outcome, or "-" for another file. Names
+ * subtype, "FAILED" with the outcome and, for "open", the fs code, or
+ * "-" for another file. Names
  * from the card go through dg_sname(), so the row is one row of at most
  * 79 columns. hdr_name is the header name of a good image, else unused.
  */

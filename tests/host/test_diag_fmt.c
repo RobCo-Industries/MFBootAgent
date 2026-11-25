@@ -1,5 +1,6 @@
 /* The diagnostics lines, markers, progress rate and verdicts: exact texts and limits. */
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -253,6 +254,47 @@ TEST(progress_rate)
     CHECK_EQ(dg_percent(11, 10), 100);
     CHECK_EQ(dg_percent(UINT64_MAX - 1, UINT64_MAX), 99);
     CHECK_EQ(dg_percent(UINT64_MAX / 2, UINT64_MAX), 50);
+}
+
+static void keys(char *buf, size_t size, const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    dg_keys_add(buf, size, fmt, ap);
+    va_end(ap);
+}
+
+/* A marker that lost keys ends with keys_cut=1; one that did not, never. */
+TEST(keys_cut_is_marked)
+{
+    char buf[40];
+    unsigned i;
+
+    buf[0] = '\0';
+    keys(buf, sizeof(buf), "a=%u", 1u);
+    keys(buf, sizeof(buf), "b=%s", "two");
+    CHECK_STR(buf, "a=1 b=two");
+    /* 28 + 11 + 1 = 40: the last key that fits with the reserve. */
+    buf[0] = '\0';
+    keys(buf, sizeof(buf), "%s", "xxxxxxxxxxxxxxxxxxxxxxxxxxx");
+    CHECK_EQ(strlen(buf), 27);
+    keys(buf, sizeof(buf), "c=%d", 1);
+    CHECK_STR(buf, "xxxxxxxxxxxxxxxxxxxxxxxxxxx keys_cut=1");
+    keys(buf, sizeof(buf), "d=1");
+    CHECK_STR(buf, "xxxxxxxxxxxxxxxxxxxxxxxxxxx keys_cut=1");
+    /* Fill with many keys: the buffer never overflows and ends marked. */
+    buf[0] = '\0';
+    for (i = 0; i < 50; i++) {
+        keys(buf, sizeof(buf), "k%u=%u", i, i);
+        CHECK(strlen(buf) < sizeof(buf));
+    }
+    CHECK(strlen(buf) >= 11);
+    CHECK_STR(buf + strlen(buf) - 11, " keys_cut=1");
+    /* A first key too long for an empty buffer. */
+    buf[0] = '\0';
+    keys(buf, sizeof(buf), "%s", "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy");
+    CHECK_STR(buf, "keys_cut=1");
 }
 
 TEST(u64_whole)

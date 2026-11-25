@@ -13,7 +13,7 @@ Every number on this page comes from QEMU. Nothing has been tried on real hardwa
 | Link address | `0x00400000`, the OS slot |
 | Header name, version | `MAINT`, 0.1.0 |
 | Stage id, marker name | 4, `maint` |
-| Size | 100424 bytes from one build. It changes with the toolchain. |
+| Size | 101088 bytes from one build. It changes with the toolchain. |
 
 ## Who may use it
 
@@ -127,7 +127,7 @@ Then it reports the free space and the size of the volume from `fs_statvfs()`. W
 
 ### Check images
 
-Every entry of `/ROBCO` whose extension is `.SYS`, `.BAK` or `.IMG`, in any case, must be an image. The tool checks each one with `dg_sd_check_image()`, the check of `DIAG.SYS`'s SD test: the header first, then the whole file in RAM above the OS slot through `rimg_validate()`, the loader's own steps. Each image prints one `image` marker and a work row. Its `rc` is one of the codes in [DIAG.md](DIAG.md#sd): `ok`, `empty`, `short`, `magic`, `version`, `size`, `bounds`, `abi`, `crc`, `isdir`, `open` or `io`. A truncated image gives `size`. Other files are not listed.
+Every entry of `/ROBCO` whose extension is `.SYS`, `.BAK` or `.IMG`, in any case, must be an image. The tool checks each one with `dg_sd_check_image()`, the check of `DIAG.SYS`'s SD test: the header first, then the whole file in RAM above the OS slot through `rimg_validate()`, the loader's own steps. Each image prints one `image` marker and a work row. Its `rc` is one of the codes in [DIAG.md](DIAG.md#sd): `ok`, `empty`, `short`, `magic`, `version`, `size`, `bounds`, `abi`, `crc`, `isdir`, `open` or `io`. With `open`, the marker adds `fs_rc`, the `fs_open()` code, and the row shows "open, error N". A truncated image gives `size`. Other files are not listed.
 
 OK means every image passed. A bad image fails the tool. No `/ROBCO` fails with `dir=missing`. A `/ROBCO` with no image file gives ABSENT.
 
@@ -240,7 +240,7 @@ The stage name is `maint`. Each line starts with `@RC stage=maint`. The image pr
 | `tool` | `name result`, then the tool keys below |
 | `progress` | `name pct`, at most one per 500 ms |
 | `card_error` | `path what rc`. `path` is encoded, see [Marker values](#marker-values). |
-| `image` | `path size rc`. `path` is encoded. |
+| `image` | `path size rc`, then `fs_rc` with `rc=open`. `path` is encoded. |
 | `view_list` | `files users cut home home_rc stat_errors stat_rc long`. `home` is `ok`, `missing` or `error`. |
 | `view_choose` | `sel name`. `name` is encoded. |
 | `view_page` | `first last lines` |
@@ -269,11 +269,13 @@ On the screen and the serial port, every byte outside `0x20` to `0x7E` shows as 
 | Tool | Keys after `result` |
 |---|---|
 | `check_card` | `dirs files bytes errors free_bytes total_bytes fat`, `first_path first_what` on a failure, `ms`, `why=stopped`, `writes` |
-| `check_images` | `images bad`, `bad_path bad_rc` for the first bad image, `dir_rc`, `why=stopped`, `writes`. No `/ROBCO`: `images=0 dir=missing writes`. |
+| `check_images` | `images bad`, `bad_path bad_rc` for the first bad image with `bad_fs_rc` when it is `open`, `dir_rc`, `why=stopped`, `writes`. No `/ROBCO`: `images=0 dir=missing writes`. |
 | `view_file` | `list=error list_rc` when the listing saw a fault, `path`, then `size shown lines binary truncated`, or `why`: `missing`, `isdir`, `read` with `rc`, `cancel`. Then `writes`. |
 | `set_clock` | `chip`, `now_rc` when the time did not read, then `set read`, or `why`: `cancel`, `no`, `set`, `readback`. No chip: `addr=0x68 rc`. A failed probe: `why=probe addr=0x68 rc`. |
 | `restore_users` | `why` when not OK, `from to size` after the question, `rc` on an error, `rc` or `line` with `why=config` |
 | `restart` | None. `reboot` follows. |
+
+A `tool` marker whose keys do not fit drops the key that does not fit and ends with `keys_cut=1`. Room for it is always kept, so a short marker never looks whole. `dg_keys_add()` in `diag/dg_fmt.c` builds the keys of both images.
 
 Without a card, the tools that need it give `why=sd rc` with ABSENT for no card, or `why=mount rc` with FAILED.
 

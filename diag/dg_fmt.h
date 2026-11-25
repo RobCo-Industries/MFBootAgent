@@ -5,6 +5,7 @@
 #ifndef DG_FMT_H
 #define DG_FMT_H
 
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -222,6 +223,24 @@ unsigned dg_percent(uint64_t done, uint64_t total);
 #define DG_U64_SIZE 21u
 /* Writes v in decimal into out and returns out. */
 const char *dg_u64(char out[DG_U64_SIZE], uint64_t v);
+
+/* ---- Result keys ---- */
+
+/*
+ * The key a result marker ends with when keys did not fit its buffer.
+ * dg_keys_add() always keeps room for it, so a marker that lost keys
+ * says so and never looks whole.
+ */
+#define DG_KEYS_CUT     "keys_cut=1"
+
+/*
+ * Appends one key, or several, formatted from fmt, to the keys in buf of
+ * `size` bytes, with a space between keys. A key that does not fit with
+ * room left for " " DG_KEYS_CUT is dropped whole and DG_KEYS_CUT ends
+ * the keys; every later key is dropped too. size must exceed 2 +
+ * sizeof(DG_KEYS_CUT).
+ */
+void dg_keys_add(char *buf, size_t size, const char *fmt, va_list ap);
 
 /* ---- Text from the card or a person ---- */
 
