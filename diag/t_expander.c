@@ -31,7 +31,8 @@ static const uint8_t addrs[CHIPS] = { 0x20, 0x21 };
 typedef struct {
     int present;
     int attached;
-    int rc;             /* the first read's result */
+    int rc;             /* the first failed read's result, else 0 */
+    int errors;         /* reads that failed after the chip answered, or not with a NACK */
     uint8_t reg[4];     /* input, output, polarity, configuration */
 } chip_t;
 
@@ -55,6 +56,10 @@ static void probe(unsigned c)
     }
     x->rc = rc;
     if (rc != 0) {
+        /* Only a NACK of the first read means no chip. Anything else is a fault. */
+        if (i != 1 || rc != I2C_ERR_NACK) {
+            x->errors++;
+        }
         return;
     }
     x->present = 1;
@@ -105,7 +110,17 @@ static const char *live(void)
         for (c = 0; c < CHIPS; c++) {
             uint8_t bits;
 
-            if (!chips[c].present || read_in(c, &bits) != 0 || bits == chips[c].reg[0]) {
+            if (!chips[c].present) {
+                continue;
+            }
+            if (read_in(c, &bits) != 0) {
+                /* A chip that stops answering is a fault, never a quiet line. */
+                if (chips[c].errors++ == 0) {
+                    dg_mark("expander_err chip=%u", c);
+                }
+                continue;
+            }
+            if (bits == chips[c].reg[0]) {
                 continue;
             }
             chips[c].reg[0] = bits;
@@ -126,13 +141,14 @@ void dg_test_expander(dg_run_t *r)
 {
     char line[DG_LINE_MAX];
     unsigned present = 0;
+    unsigned errors = 0;
     unsigned c;
     int rc = dg_i2c();
 
     if (rc != 0) {
         r->result = DG_FAIL;
         dg_keys(r, "why=i2c rc=%d", rc);
-        dg_text(r, "I2C does not start.");
+        dg_text(r, DG_TX_I2C);
         return;
     }
     for (c = 0; c < CHIPS; c++) {
@@ -151,7 +167,11 @@ void dg_test_expander(dg_run_t *r)
                     addrs[c], c, x->reg[0], c, x->reg[1], c, x->reg[2], c, x->reg[3]);
         } else {
             dg_mark("expander chip=%u addr=0x%02x present=0 rc=%d", c, addrs[c], x->rc);
-            dg_keys(r, "x%u=absent", c);
+            if (x->errors == 0) {
+                dg_keys(r, "x%u=absent", c);
+            } else {
+                dg_keys(r, "x%u=error rc%u=%d", c, c, x->rc);
+            }
         }
     }
     if (present != 0 && r->mode == DG_MODE_ONE) {
@@ -163,6 +183,15 @@ void dg_test_expander(dg_run_t *r)
             (void)gpiox_detach(c);
         }
     }
+    for (c = 0; c < CHIPS; c++) {
+        errors += (unsigned)chips[c].errors;
+    }
+    if (errors != 0) {
+        r->result = DG_FAIL;
+        dg_keys(r, "errors=%u", errors);
+        dg_text(r, DG_TX_X_ERR, present);
+        return;
+    }
     r->result = present != 0 ? DG_OK : DG_ABSENT;
-    dg_text(r, "%u of 2 chips present", present);
+    dg_text(r, DG_TX_X_OK, present);
 }
