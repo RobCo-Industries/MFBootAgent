@@ -64,7 +64,7 @@ make test-target RETROS_IMG=/path/to/retros.img
 
 - `test_diag_menu.py`: the markers, the menu golden, keys, port commands and reboot.
 - `test_diag_mem.py`: the full range, a planted fault with the test build, and an abort by key.
-- `test_diag_sd.py`: a good card, a card with one corrupted image, a 64 MiB card read as a sample, and no card. The card file is unchanged after the test.
+- `test_diag_sd.py`: a good card, a corrupted image, a `DIAG.SYS` cut to 16 bytes, a damaged magic, an extra text file, a card without `/ROBCO`, a `/ROBCO` whose cluster chain is broken, a 64 MiB card read as a sample, and no card. The card file is unchanged after the good card test.
 - `test_diag_devices.py`: video patterns checked pixel by pixel, audio through the trace backend, the input live view and its three exits, timer, rng, and the clock chip present and absent.
 - `test_diag_expander.py`: both expanders, one and none. The test presets outputs on the QEMU models, drives input lines with qtest, and checks that every pin the chips drive is the same at the end. It also checks that the image links no expander write function.
 - `test_diag_all.py`: `diag all` with every device, on a bare board, and an abort that skips the rest.

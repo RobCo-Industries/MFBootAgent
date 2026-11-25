@@ -12,7 +12,7 @@ Every number on this page comes from QEMU. Nothing has been tried on real hardwa
 | Magic, subtype, ABI | `BOOT`, 3, 2.0 |
 | Link address | `0x00400000`, the OS slot |
 | Header name, version | `DIAG`, 0.1.0 |
-| Size | 100472 bytes. With BSS and stacks, `mem_size` is `0x37770`. |
+| Size | 101896 bytes. With BSS and stacks, `mem_size` is `0x37770`. |
 
 ## Starting it
 
@@ -35,7 +35,7 @@ The colour scheme comes from the boot info, else green.
 
 Keys come from the serial console, the maintenance port and the GPIO buttons. The buttons use the pins of BOARD_SUPPORT.md in RobCo-Core: UP 5, DOWN 6, LEFT 17, RIGHT 22, SELECT 26, BACK 27, a dial on 23 and 24 with its push on 16. The GPIO backend turns itself off when every button reads pressed for its whole guard time.
 
-Each row of the menu shows the last result of its test. The status row under the help line shows the last test or the run-all summary. A test writes its lines in the area under the menu.
+Each row of the menu shows the last result of its test and a short detail. The detail holds 26 characters at most, so the row fits 79 columns. The console keeps column 80 blank. The work rows and the `diag` marker give the full detail. The status row under the help line shows the last test or the run-all summary. A test writes its lines in the area under the menu.
 
 ## The tests
 
@@ -76,9 +76,26 @@ The card is read through a copy of its block device flagged read-only. Its write
 
 1. The card identity: type, manufacturer, OEM, product name, serial and size.
 2. The blocks of the boot volume, in reads of 64 blocks. A volume of up to 65536 blocks, 32 MiB, is read whole. A larger one is read as 1024 reads spread from its first block to its last. So the test reads at most 32 MiB. A failed read is retried block by block to find the first bad block.
-3. Every file of `/ROBCO` with an image header is read into RAM above the OS slot and checked with `rimg_validate()`, the loader's own steps. Each prints an `sd_image` marker.
+3. The files of `/ROBCO`, by the rule below.
 
-"ok" means no read error and every image passed. With no card, the result is `absent`.
+The rule that names images: every entry of `/ROBCO` whose extension is `.SYS`, `.BAK` or `.IMG`, in any case, must be an image. The test reads such a file into RAM above the OS slot and checks it with `rimg_validate()`, the loader's own steps. Each image prints an `sd_image` marker and a work row. Its `rc` is one of these:
+
+| `rc` | Cause |
+|---|---|
+| `ok` | The image passed every step |
+| `empty` | The file has 0 bytes |
+| `short` | The file has 1 to 95 bytes, too few for a header |
+| `magic` | The magic is not a known one |
+| `version`, `size`, `bounds`, `abi`, `crc` | That step of `rimg_validate()` failed |
+| `isdir` | A directory has an image name |
+| `open` | The file does not open |
+| `io` | A read of the file failed or came back short |
+
+Any other file is listed as "not an image". The test does not read it, and it never fails the test. Other directories are ignored.
+
+A read error of the directory fails the test with `dir_rc`, the error code. It never counts as the end of the directory. A card without `/ROBCO` fails with `dir=missing` and the text "No /ROBCO folder". The block reads still run and report.
+
+"ok" means no read error, a whole `/ROBCO`, and every image passed. With no card, the result is `absent`.
 
 ### video
 
@@ -114,6 +131,8 @@ The two PCA9554 of the terminal controller board, at `0x20` and `0x21` on I2C1.
 
 STRICTLY READ-ONLY. Relays and door locks may hang on these pins. The test reads the four registers of each chip with a one-byte register pointer and a read. It never writes an output, a direction or the polarity. `gpiox_attach()` writes the polarity register when it is not 0, so the test attaches a chip only when its polarity reads 0. Then the attach writes nothing. The image does not link `gpiox_config()`, `gpiox_write()` or `gpiox_write_port()`, and a test checks this.
 
+A chip is absent only when it does not acknowledge the first read. Any other failed read fails the test, as does a failed read in the live view.
+
 Alone, a live view shows the input port of each chip, a row per line from `X0.0` to `X1.7`, so a person can press a sensor contact and see the bit move. Each change prints an `expander_in` marker. ESC leaves, as does one minute with no change and no key. Run all reports presence and the registers once.
 
 ## Run all
@@ -145,6 +164,7 @@ The stage name is `diag`. Each line starts with `@RC stage=diag`.
 | `i2c` | `rc`, at the first I2C test |
 | `expander` | `chip addr present`, then `in out pol cfg attached` or `rc` |
 | `expander_in` | `chip bits` |
+| `expander_err` | `chip`, at the first failed read of a chip in the live view |
 | `reboot` | `source`, `key` or `maint` |
 
 `result` is `ok`, `fail`, `absent` or `skipped`. A skipped test has `why`: `abort` or `interactive`.
@@ -152,14 +172,14 @@ The stage name is `diag`. Each line starts with `@RC stage=diag`.
 | Test | Keys after `result` |
 |---|---|
 | `mem` | `ranges start end bytes patterns ms`. A fault: `pattern addr expected found bytes`. |
-| `sd` | `card mid oid pnm psn blocks vol_lba vol_blocks read sampled errors`, `first_bad` on an error, `ms kib_s files images bad_images`, `bad_path` on a bad image, `writes`. No card: `why=init rc`. |
+| `sd` | `card mid oid pnm psn blocks vol_lba vol_blocks read sampled errors`, `first_bad` on an error, `ms kib_s files images bad_images others`, `bad_path bad_rc` for the first bad image, `dir_rc` on a directory error, `writes`. No `/ROBCO`: `files=0 dir=missing` in place of the file keys. No card: `why=init rc`. |
 | `video` | `width height depth pitch order patterns judge=person` |
 | `audio` | `backend probe init tones notes` |
 | `input` | `events why gpio`. `why` is `back2`, `long` or `idle`. |
 | `timer` | `ticks hz us ppm limit missed` |
 | `rng` | `words repeats bits` |
 | `rtc` | `addr chip halted time` |
-| `expander` | `x0 in0 out0 pol0 cfg0` or `x0=absent`, the same for chip 1, and `view` after the live view |
+| `expander` | `x0 in0 out0 pol0 cfg0`, `x0=absent` or `x0=error rc0`, the same for chip 1, `view` after the live view, and `errors` when a read failed |
 
 ## Maintenance port
 
