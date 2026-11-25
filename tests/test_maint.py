@@ -163,6 +163,63 @@ def test_open_by_port_countdown_stays_stopped(board, mfboot_image, test_os, need
         assert one(vm, "choose")["via"] == "key"
 
 
+def port_answers(vm):
+    """The port's status lines, in order."""
+    return [x for x in vm.lines(1) if x == "ok" or x.startswith("err")]
+
+
+def test_port_select_then_maint_boots(board, mfboot_image, test_os, need_mtools, tmp_path):
+    """SELECT came first: it boots, and the maint request behind it is dropped."""
+    with alone(mfboot_image, board, card(tmp_path, os_files(test_os))) as vm:
+        vm.wait_for(READY, timeout=TIMEOUT)
+        vm.send("key select\nmaint\n", port=1)
+        check_os_flags(vm, BOOT_COLD)
+        assert not events(vm, "maint_open"), vm.serial
+        assert one(vm, "maint_drop")["why"] == "boot"
+        assert port_answers(vm)[:2] == ["ok", "ok"], vm.lines(1)
+
+
+def test_port_select_then_maint_failed_load(board, mfboot_image, test_os, need_mtools,
+                                            tmp_path):
+    """The default entry fails to load: the dropped request never opens the screen later."""
+    files = os_files(test_os)
+    del files[UOS]
+    with alone(mfboot_image, board, card(tmp_path, files)) as vm:
+        vm.wait_for(READY, timeout=TIMEOUT)
+        vm.send("key select\nmaint\n", port=1)
+        vm.wait_for("ev=error code=nofile", timeout=TIMEOUT)
+        st = state(vm)
+        assert (st["phase"], st["maint"]) == ("menu", "0"), st
+        key(vm, "down")
+        assert state(vm)["sel"] == "2"
+        assert not events(vm, "maint_open"), vm.serial
+        assert one(vm, "maint_drop")["why"] == "boot"
+        assert port_answers(vm)[:2] == ["ok", "ok"], vm.lines(1)
+        # A new request opens it now.
+        assert vm.script("maint", timeout=TIMEOUT).status == "ok"
+        vm.wait_for(OPEN, timeout=TIMEOUT)
+        assert one(vm, "maint_open")["why"] == "port"
+
+
+def test_port_maint_then_select_acts_inside(board, mfboot_image, test_os, need_mtools,
+                                            tmp_path):
+    """maint came first: the screen opens and SELECT runs its first action."""
+    with alone(mfboot_image, board, card(tmp_path, os_files(test_os))) as vm:
+        vm.wait_for(READY, timeout=TIMEOUT)
+        vm.send("maint\nkey select\n", port=1)
+        vm.wait_for(VERIFY_DONE, timeout=TIMEOUT)
+        st = state(vm)
+        assert (st["phase"], st["maint"]) == ("menu", "1"), st
+        assert one(vm, "maint_open")["why"] == "port"
+        assert one(vm, "maint_action")["name"] == "verify"
+        assert not events(vm, "choose") and not events(vm, "maint_drop"), vm.serial
+        assert port_answers(vm)[:2] == ["ok", "ok"], vm.lines(1)
+        char(vm, "q")
+        vm.wait_for(CLOSE, timeout=TIMEOUT)
+        key(vm, "select")
+        check_os_flags(vm, BOOT_COLD | BOOT_MAINT)
+
+
 def test_state_answers_between_queued_keys(board, mfboot_image, test_os, need_mtools,
                                            tmp_path):
     """The port answers a line before the stage takes the keys queued ahead
