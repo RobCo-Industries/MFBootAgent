@@ -58,7 +58,7 @@ def screen_rows(vm):
 def open_by_key(vm):
     char(vm, "m")
     vm.wait_for(OPEN, timeout=TIMEOUT)
-    # The state reply comes from the screen's input wait: drawing is done.
+    # state() waits until the stage took every queued key: drawing is done.
     assert state(vm)["maint"] == "1"
 
 
@@ -161,6 +161,24 @@ def test_open_by_port_countdown_stays_stopped(board, mfboot_image, test_os, need
         key(vm, "select")
         check_os_flags(vm, BOOT_COLD | BOOT_MAINT)
         assert one(vm, "choose")["via"] == "key"
+
+
+def test_state_answers_between_queued_keys(board, mfboot_image, test_os, need_mtools,
+                                           tmp_path):
+    """The port answers a line before the stage takes the keys queued ahead
+    of it. pending= says so, and state() waits for pending=0."""
+    with alone(mfboot_image, board, card(tmp_path, os_files(test_os))) as vm:
+        vm.wait_for(READY, timeout=TIMEOUT)
+        open_by_key(vm)
+        replies = len([x for x in vm.lines(1) if x.startswith("| phase=")])
+        # One write: the stage reads all three lines before it takes a key.
+        vm.send("key down\nkey down\nstate\n", port=1)
+        vm.wait_for(re.compile(r"(\| phase=[^\n]*\nok\n[\s\S]*){%d}" % (replies + 1)),
+                    timeout=TIMEOUT, port=1)
+        early = [x for x in vm.lines(1) if x.startswith("| phase=")][-1]
+        assert re.search(r" pending=[1-9]", early), early
+        assert state(vm)["pending"] == "0"
+        assert screen_rows(vm)[2:5] == ["  Verify entries", "  System", "> Configuration"]
 
 
 def test_button_back_opens_and_esc_does_not(board, mfboot_image, test_os, need_mtools,
