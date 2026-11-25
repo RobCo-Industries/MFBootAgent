@@ -137,6 +137,15 @@ const char *mt_line_rule(void);
 const char *mt_line_help(void);
 const char *mt_line_idle(void);
 
+/*
+ * The status line at start. `trusted` and `flags` are the trust rule's
+ * result and the received boot_flags. With a trusted block, bits 1 and 3
+ * show as plain facts first: "Started by a request." for bit 3,
+ * "Maintenance asked." for bit 1 alone. Nothing for an untrusted block.
+ * Then `cfg`, the [maint] notice, when it is not "", else the idle line.
+ */
+void mt_line_start(char *out, size_t size, int trusted, uint32_t flags, const char *cfg);
+
 /* A menu row: "> 1  CHECK CARD     Read every file, report errors  OK       text". */
 void mt_line_item(char *out, size_t size, unsigned tool, int selected, int result,
                   const char *text);

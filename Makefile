@@ -39,6 +39,7 @@ PURE_SRCS  := \
               src/menu.c \
               src/menulines.c \
               src/portreq.c \
+              src/startkeys.c \
 
 SRCS       := $(sort $(wildcard src/*.c))
 

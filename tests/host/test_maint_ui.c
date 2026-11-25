@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include <robco/bootinfo.h>
 #include <robco/input.h>
 
 #include "mt_ui.h"
@@ -185,4 +186,26 @@ TEST(a_held_key_answers_once)
         }
     }
     CHECK_EQ(answers, 1);
+}
+
+/* The status line at start: bits 1 and 3 as facts, only from a trusted block. */
+TEST(start_line_shows_the_flags)
+{
+    static const char cfg[] = "BOOT.CFG line 4 does not parse. Restore users is off.";
+    char line[MT_LINE_MAX];
+    uint32_t both = ROBCO_BOOT_MAINT | ROBCO_BOOT_MAINT_REQ;
+
+    mt_line_start(line, sizeof(line), 1, both | ROBCO_BOOT_COLD, "");
+    CHECK_STR(line, "Started by a request. Choose a tool.");
+    mt_line_start(line, sizeof(line), 1, ROBCO_BOOT_MAINT, "");
+    CHECK_STR(line, "Maintenance asked. Choose a tool.");
+    mt_line_start(line, sizeof(line), 1, 0, "");
+    CHECK_STR(line, "Choose a tool.");
+    mt_line_start(line, sizeof(line), 0, both, "");
+    CHECK_STR(line, "Choose a tool.");
+    mt_line_start(line, sizeof(line), 1, both, cfg);
+    CHECK_STR(line, "Started by a request. BOOT.CFG line 4 does not parse. Restore users is off.");
+    CHECK(strlen(line) <= MT_MIN_COLS - 1);
+    mt_line_start(line, sizeof(line), 0, 0, cfg);
+    CHECK_STR(line, cfg);
 }

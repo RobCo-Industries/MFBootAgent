@@ -5,9 +5,9 @@
 ROBCO_CORE ?= ../external/robco-core
 IMAGE      := maint
 LINK_ADDR  := 0x00400000
-# Shared with the boot agent: the port request rule. Shared with the
+# Shared with the boot agent: the port request rule and the start key rule. Shared with the
 # diagnostics image: the image check, the write guard and the progress rate.
-SRCS       := $(sort $(wildcard *.c)) ../src/portreq.c \
+SRCS       := $(sort $(wildcard *.c)) ../src/portreq.c ../src/startkeys.c \
               ../diag/dg_sd.c ../diag/dg_sdimg.c ../diag/dg_fmt.c
 CONFIG_H   := robco_config.h
 

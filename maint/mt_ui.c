@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 
+#include <robco/bootinfo.h>
 #include <robco/klibc.h>
 
 #include "mt_ui.h"
@@ -206,6 +207,18 @@ const char *mt_line_help(void)
 const char *mt_line_idle(void)
 {
     return "Choose a tool.";
+}
+
+void mt_line_start(char *out, size_t size, int trusted, uint32_t flags, const char *cfg)
+{
+    const char *fact = "";
+
+    if (trusted && (flags & ROBCO_BOOT_MAINT_REQ) != 0) {
+        fact = "Started by a request. ";
+    } else if (trusted && (flags & ROBCO_BOOT_MAINT) != 0) {
+        fact = "Maintenance asked. ";
+    }
+    k_snprintf(out, size, "%s%s", fact, cfg[0] != '\0' ? cfg : mt_line_idle());
 }
 
 void mt_line_item(char *out, size_t size, unsigned tool, int selected, int result,

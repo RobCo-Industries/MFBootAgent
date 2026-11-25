@@ -31,6 +31,7 @@
 
 #include "mt.h"
 #include "../src/portreq.h"
+#include "../src/startkeys.h"
 
 #define SCREEN_W 640u
 #define SCREEN_H 480u
@@ -70,6 +71,12 @@ static char cfg_text[MT_CFG_FILE_MAX];
  * tool it runs.
  */
 static int32_t req_live;
+/*
+ * The start key rule of the agent's start screen, shared: a button held
+ * at power-on through the agent comes again as a press from this image's
+ * guard. It and its repeats and release are no choice on the menu.
+ */
+static mfb_start_keys_t start_keys;
 static int32_t req_seq;
 static unsigned req_tool;
 
@@ -198,7 +205,7 @@ int mt_poll_abort(void)
     int stop = 0;
 
     while (input_poll(&ev)) {
-        if (mt_is_abort(&ev)) {
+        if (mfb_start_keys_take(&start_keys, &ev) && mt_is_abort(&ev)) {
             stop = 1;
         }
     }
@@ -207,7 +214,7 @@ int mt_poll_abort(void)
 
 int mt_wait_event(input_event_t *ev, uint32_t ms)
 {
-    if (!input_wait(ev, ms)) {
+    if (!input_wait(ev, ms) || !mfb_start_keys_take(&start_keys, ev)) {
         return 0;
     }
     /* A dropped port request is no key for the tool. */
@@ -589,8 +596,9 @@ static void init_input(void)
             __asm__ volatile("wfi" ::: "memory");
         }
     }
-    mt_mark("input serial=%d mini=%d script=%d gpio=%d buttons=%s", serial, mini, script, gpio,
-            input_gpio_status_name(input_gpio_status()));
+    /* pending: the events the guard queued, such as the press of a held button. */
+    mt_mark("input serial=%d mini=%d script=%d gpio=%d buttons=%s pending=%u", serial, mini,
+            script, gpio, input_gpio_status_name(input_gpio_status()), input_pending());
 }
 
 /*
@@ -687,6 +695,20 @@ static void entry(void)
     read_config();
 }
 
+/* The menu shows now: what the queue holds came before anyone saw it. */
+static void start_keys_open(void)
+{
+    uint32_t held = 0;
+    unsigned code;
+
+    for (code = 1; code < INPUT_KEY_COUNT; code++) {
+        if (input_key_down(code)) {
+            held |= (uint32_t)1 << code;
+        }
+    }
+    mfb_start_keys_init(&start_keys, input_pending(), held);
+}
+
 void robco_main(void)
 {
     input_event_t ev;
@@ -698,20 +720,27 @@ void robco_main(void)
     for (i = 0; i < MT_TOOLS; i++) {
         results[i] = MT_NONE;
     }
-    /* A [maint] that could not be read says so until the first tool runs. */
-    mt_cfg_status(status, sizeof(status), &mt.cfg);
-    if (status[0] == '\0') {
-        k_strncpy(status, mt_line_idle(), sizeof(status));
+    /*
+     * Bits 1 and 3 as facts, and a [maint] that could not be read, until
+     * the first tool runs.
+     */
+    {
+        char cfg[MT_LINE_MAX];
+
+        mt_cfg_status(cfg, sizeof(cfg), &mt.cfg);
+        mt_line_start(status, sizeof(status), mt.trusted,
+                      mt.trusted ? bootinfo_get()->boot_flags : 0, cfg);
     }
     mt_menu_init(&menu, MT_TOOLS);
     uart_putc('\n');
     draw_menu(1);
     mt.phase = MT_PHASE_MENU;
+    start_keys_open();
     mt_mark("ready");
     for (;;) {
         int act = MT_ACT_NONE;
 
-        if (input_wait(&ev, LOOP_MS)) {
+        if (input_wait(&ev, LOOP_MS) && mfb_start_keys_take(&start_keys, &ev)) {
             int port = mfb_port_req(&ev, req_live);
 
             if (port == MFB_PORT_LIVE) {
