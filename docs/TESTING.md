@@ -2,7 +2,7 @@
 
 ## Host tests
 
-`make test-host` builds each `tests/host/test_<name>.c` with the pure files and runs it with AddressSanitizer and UBSan. It also compiles them with the cross GCC to catch the GCC warnings that CI reports.
+`make test-host` builds each `tests/host/test_<name>.c` with the pure files and runs it with AddressSanitizer and UBSan. It also compiles them with the cross GCC in two passes, at CI's flags with the sanitizers and at `-O2`, to catch the GCC warnings that CI reports. `make ci-local` runs a CI build in the robco-ci container with Docker. Both come from RobCo-Core's `mk/host.mk`.
 
 | File | Covers |
 |---|---|
@@ -39,7 +39,7 @@ How the stage starts:
 | `test_env_hygiene.py` | No test copies the host environment |
 | `test_maint.py` | The maintenance screen opened by `M`, BACK, the port and `boot_flags` bit 1 from `tests/chain1maint`. Each action, verify with good and bad entries and with the card ejected, the countdown not restarting, `maint` and `key select` in one write in both orders, bit 1 in the next stage's boot info, the input back ends, the screen and verify goldens. |
 | `test_port_replies.py` | `state()` and `batch()` against a fake port, no QEMU: a reply left unread by a raw write is reported |
-| `test_timing_skips.py` | The `host timing:` skip count against fake reports, no QEMU: the limit per board, the option and the failed session |
+| `test_timing_skips.py` | No QEMU: the library's host timing skip limit is loaded, and a starved timer skips with a reason it counts |
 
 The test OS in `tests/os/` is built three times, as subtypes 0, 2 and 3. It checks the registers and the boot info it receives against the spec for a third stage and prints one `check` marker per check.
 
@@ -80,7 +80,7 @@ make test-target RETROS_IMG=/path/to/retros.img
 
 On a busy host, QEMU can stop the guest for longer than a tick period. The timer test then misses ticks and fails, as it must on a real board. The two `diag all` runs and `test_timer_and_rng` skip in that case and print the numbers, only when the timer is the only failure, `missed` is above 0 and `window_missed` explains `us` within one period. Any other failure fails. `test_timer_and_rng` runs rng first, so a skip never hides it. `test_timer_starved_rule` checks the rule without QEMU, with numbers seen on raspi2b at a load average of 22.
 
-These skips have the reason prefix `host timing:`. `tests/timing_skips.py` counts them per session and fails the session when there are more than one per board in it. On a loaded local machine, `--timing-skips-max=<n>` or `make test-target TIMING_SKIPS_MAX=<n>` allows more. `make test-target` runs pytest with `-rs`, so every skip reason prints at the end. `test_timing_skips.py` checks the counting without QEMU.
+These skips go through RobCo-Core's `harness.hosttiming.skip()`, with the reason prefix `host timing:`. `tests/conftest.py` loads the library's `tests/target/conftest.py`, which counts them per board and fails the session when one board has more than one. On a loaded local machine, `--timing-skips-max=<n>` or `make test-target TIMING_SKIPS_MAX=<n>` allows more per board. `make test-target` runs pytest with `-rs`, so every skip reason prints at the end. The library tests its counting. `test_timing_skips.py` checks that this project loads it. The rule that decides when a timer failure may skip stays here in `tests/diag.py`: the library's skip carries no evidence check.
 - `test_diag_chain.py`: the agent's menu, choose `DIAG`, the image trusts the boot info and reaches `ready`. Alone and after `examples/chain1`. With both features: the maintenance screen's Verify entries passes the real `DIAG.SYS`, then `DIAG` boots from the menu with `boot_flags` bit 1 set and shows its menu.
 
 QEMU models no cache. The memory test proves that the flush runs over every byte, not that it reaches RAM on a board. Nothing here is validated on hardware.
@@ -89,4 +89,24 @@ QEMU models no cache. The memory test proves that the flush runs over every byte
 
 ## GPIO buttons
 
-QEMU cannot set Pi GPIO input levels. Every line reads 0, so the active-low buttons look held and the library disables the back end. The host tests cover the key mapping. The target tests check the `input` marker, `buttons=disabled_stuck`, and that console and port keys work. A BACK the port injects stands in for the button. Button navigation is untested on hardware.
+QEMU models no GPIO pulls, so an undriven line reads 0 and an active-low button reads pressed. RobCo-Core's `harness.pigpio` sets input levels through qtest. `boot(..., qtest=True, gpio_high=pins)` drives lines high before the guest starts, and `PiGpio` presses and releases them. `alone()` in `tests/mfboot.py` and in `tests/diag.py` passes both through.
+
+`test_buttons.py` uses the pins of `src/maint.c` and `diag/main.c`: UP 5, DOWN 6, LEFT 17, RIGHT 22, SELECT 26, BACK 27.
+
+| Test | Proves |
+|---|---|
+| `test_menu_up_down_select` | The buttons alone move the bar down, up and down, and SELECT boots the entry under it. The `input` marker reads `buttons=active` and `live=serial,gpio,script`. |
+| `test_back_held_at_start_opens_maintenance` | BACK held from power-on, the other lines high: the guard passes, the held button comes as a press, and the screen opens with `why=button`. Nothing boots. |
+| `test_down_held_at_start_stops_the_countdown` | DOWN held from power-on moves the bar to entry 2 and stops a 3 s countdown. Nothing boots after it. |
+| `test_select_held_at_start_boots_the_default` | SELECT held from power-on boots the default entry by key, long before a 30 s countdown ends |
+| `test_all_lines_low_disables_the_buttons` | No line driven: the backend reads `disabled_stuck`. Lines released and DOWN pressed later give no event. Serial keys still move the bar and boot. |
+| `test_diag_input_view_shows_two_buttons` | In the `DIAG.SYS` input view, UP and SELECT held together give `gpio` press events and two PRESSED rows. Releasing both gives release events, no row stays pressed, and the view ends with `gpio=active`. |
+
+A press is held until the guest reports its effect, then released. So no check depends on host timing, and none needs the library's timing rule in `tests/target/test_input_gpio.py`. A host stall only makes a test slower. UP and DOWN repeat after 500 ms. The menus in these tests have two entries, so a repeat at an end changes nothing. With SELECT or BACK moved to another pin in `src/maint.c`, `test_menu_up_down_select` and `test_back_held_at_start_opens_maintenance` fail.
+
+What stays unverified until hardware:
+
+- A QEMU press is a clean level change. It has no bounce, so the 20 ms debounce only delays it here. The library's own tests play bounce and chatter on its example image, not on this one.
+- The backend samples on the tick. No edge interrupt is modelled or used, so an edge path cannot be checked.
+- Pulls are not modelled. The internal pull-up that holds a released line high on a board is not exercised: the test drives the line high instead.
+- Real switch wiring, contact resistance and a button that sticks after release.

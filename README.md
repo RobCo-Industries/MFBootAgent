@@ -14,7 +14,7 @@ What works, in QEMU on `raspi0`, `raspi1ap`, `raspi2b` and `raspi3b`:
 - It checks the chosen image's header and subtype, loads it and hands off with the boot info.
 - A failed load shows an error line and the menu stays.
 - A maintenance screen checks every entry and shows the system and the configuration.
-- GPIO buttons drive the menu. They are untested: QEMU cannot press them.
+- GPIO buttons drive the menu. QEMU tests press them through qtest. They are untested on hardware.
 
 It also builds `DIAG.SYS`, a diagnostics image with nine hardware tests. See [docs/DIAG.md](docs/DIAG.md).
 

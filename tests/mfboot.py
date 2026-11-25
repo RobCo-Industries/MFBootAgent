@@ -115,8 +115,12 @@ def flip(image, offset=0x200):
 
 
 @contextlib.contextmanager
-def alone(mfboot_image, board, sd=None, extra_args=None):
-    """Boots MFBootAgent with no first stage: QEMU loads it at its link address."""
+def alone(mfboot_image, board, sd=None, extra_args=None, qtest=False, gpio_high=()):
+    """Boots MFBootAgent with no first stage: QEMU loads it at its link address.
+
+    qtest and gpio_high go to the harness's boot(), for tests that drive
+    GPIO levels with harness.pigpio.
+    """
     with tempfile.TemporaryDirectory(prefix="mfb") as tmp:
         tramp = os.path.join(tmp, "tramp.img")
         with open(tramp, "wb") as f:
@@ -124,7 +128,8 @@ def alone(mfboot_image, board, sd=None, extra_args=None):
         args = ["-device", f"loader,file={mfboot_image},addr={SLOT:#x},force-raw=on"]
         with boot(tramp, board, sd=sd, serial2=True,
                   extra_args=args + list(extra_args or []),
-                  elf=os.path.splitext(mfboot_image)[0] + ".elf") as vm:
+                  elf=os.path.splitext(mfboot_image)[0] + ".elf",
+                  qtest=qtest, gpio_high=gpio_high) as vm:
             yield vm
 
 

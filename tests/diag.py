@@ -6,7 +6,7 @@ import re
 import struct
 import tempfile
 
-import timing_skips
+from harness import hosttiming
 
 from harness.boot import boot, parse_markers
 
@@ -63,7 +63,7 @@ def elf_path(image):
 
 
 @contextlib.contextmanager
-def alone(image, board, sd=None, devices=(), qtest=False):
+def alone(image, board, sd=None, devices=(), qtest=False, gpio_high=()):
     """Boots the diagnostics image with no earlier stage: QEMU loads it in the OS slot."""
     with tempfile.TemporaryDirectory(prefix="diag") as tmp:
         tramp = os.path.join(tmp, "tramp.img")
@@ -71,7 +71,7 @@ def alone(image, board, sd=None, devices=(), qtest=False):
             f.write(TRAMPOLINE)
         args = ["-device", f"loader,file={image},addr={DIAG_SLOT:#x},force-raw=on"]
         with boot(tramp, board, sd=sd, serial2=True, extra_args=args + list(devices),
-                  elf=elf_path(image), qtest=qtest) as vm:
+                  elf=elf_path(image), qtest=qtest, gpio_high=gpio_high) as vm:
             vm.wait_for(READY, timeout=TIMEOUT)
             yield vm
 
@@ -149,7 +149,7 @@ def skip_if_timer_starved(vm, want):
     starved = timer_starved(timer[0]) if len(timer) == 1 else None
     expect = [(n, "fail" if n == "timer" else r) for n, r in want]
     assert starved is not None and got == expect, vm.serial
-    timing_skips.skip(starved)
+    hosttiming.skip(starved)
 
 
 def skip_if_timer_alone_starved(vm, m):
@@ -161,7 +161,7 @@ def skip_if_timer_alone_starved(vm, m):
         return
     starved = timer_starved(m)
     assert starved is not None, vm.serial
-    timing_skips.skip(starved)
+    hosttiming.skip(starved)
 
 
 def wait_state(vm, phase, timeout=TIMEOUT):

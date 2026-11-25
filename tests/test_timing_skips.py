@@ -1,74 +1,25 @@
-"""The host timing skip counter against fake reports, no QEMU: more than one
-skip per board fails the session, unless --timing-skips-max allows more."""
+"""The library's host timing skip limit is wired in, no QEMU.
 
-import types
+RobCo-Core's tests/target/conftest.py counts the skips per board and
+tests its own counting. These tests check that this project loads it and
+that the diagnostics helpers skip with a reason it counts.
+"""
 
 import pytest
 
-import timing_skips as ts
+import diag
+from harness import hosttiming
 
 
-def report(outcome, message=""):
-    longrepr = ("tests/test_x.py", 1, message) if outcome == "skipped" else None
-    return types.SimpleNamespace(skipped=outcome == "skipped", longrepr=longrepr)
+def test_the_library_counter_is_registered(request):
+    counter = request.config.pluginmanager.get_plugin("robco-timing-skips")
+    assert counter is not None
+    assert request.config.getoption("--timing-skips-max") >= 0
 
 
-def fake_config(boards, most=None):
-    opts = {"--board": boards, ts.OPTION: most}
-    return types.SimpleNamespace(getoption=opts.get,
-                                 getini=lambda name: [])
-
-
-def finish(config, reports, status=pytest.ExitCode.OK):
-    counter = ts.Counter(config)
-    for r in reports:
-        counter.pytest_runtest_logreport(r)
-    session = types.SimpleNamespace(exitstatus=status)
-    counter.pytest_sessionfinish(session)
-    return counter, session.exitstatus
-
-
-def timing(n):
-    return [report("skipped", f"Skipped: {ts.PREFIX}timer missed {i} ticks") for i in range(n)]
-
-
-def test_only_timing_skips_count():
-    others = [report("passed"), report("skipped", "Skipped: RETROS_IMG is not set"),
-              report("skipped", "Skipped: timer missed 3 ticks")]
-    counter, status = finish(fake_config(["raspi2b"]), others + timing(1))
-    assert counter.skips == 1
-    assert status == pytest.ExitCode.OK
-
-
-def test_one_per_board_passes():
-    _, status = finish(fake_config(["raspi0", "raspi2b"]), timing(2))
-    assert status == pytest.ExitCode.OK
-
-
-def test_more_than_one_per_board_fails():
-    _, status = finish(fake_config(["raspi2b"]), timing(2))
-    assert status == pytest.ExitCode.TESTS_FAILED
-    _, status = finish(fake_config(["all"]), timing(5))
-    assert status == pytest.ExitCode.TESTS_FAILED
-
-
-def test_all_counts_every_board():
-    _, status = finish(fake_config(["all"]), timing(4))
-    assert status == pytest.ExitCode.OK
-
-
-def test_option_overrides_the_limit():
-    _, status = finish(fake_config(["raspi2b"], most=3), timing(3))
-    assert status == pytest.ExitCode.OK
-    _, status = finish(fake_config(["raspi0", "raspi2b"], most=0), timing(1))
-    assert status == pytest.ExitCode.TESTS_FAILED
-
-
-def test_failed_session_stays_failed():
-    _, status = finish(fake_config(["raspi2b"]), timing(0), pytest.ExitCode.TESTS_FAILED)
-    assert status == pytest.ExitCode.TESTS_FAILED
-
-
-def test_skip_has_the_prefix():
-    with pytest.raises(pytest.skip.Exception, match=r"^host timing: timer missed"):
-        ts.skip("timer missed 2 ticks")
+def test_a_starved_timer_skip_is_counted():
+    m = {"result": "fail", "ticks": "100", "hz": "100", "us": "1201762",
+         "missed": "20", "window_missed": "20", "ppm": "0", "limit": "10000"}
+    with pytest.raises(pytest.skip.Exception) as e:
+        diag.skip_if_timer_alone_starved(None, m)
+    assert hosttiming.is_timing_skip(str(e.value))

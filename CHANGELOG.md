@@ -23,10 +23,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A maintenance screen, opened by `M`, BACK, the port's `maint` or `boot_flags` bit 1, with Verify entries, System, Configuration and Reboot. New markers `maint_open`, `maint_action`, `verify_entry`, `verify_done` and `maint_close`.
 - `boot_flags` bit 1 is set when the user opened the maintenance screen, and kept when it arrived set.
 - `docs/USER_MANUAL.md`.
+- QEMU tests that press GPIO buttons through RobCo-Core's `harness.pigpio`: the boot menu with UP, DOWN and SELECT, BACK and DOWN held at start, the all-lines-low guard, and two buttons in the `DIAG.SYS` input view.
 
 ### Changed
 
-- RobCo-Core is pinned at `c89d53a`.
+- RobCo-Core is pinned at `25f36d8`. Its harness parks the spare cores of QEMU's raspi3b, and its host warning check compiles at CI's flags.
+- The host timing skip limit is RobCo-Core's, per board. `tests/timing_skips.py` is gone. `--timing-skips-max` now counts per board.
 - After a trusted handoff the stage adopts the screen with `fb_adopt()` and `console_adopt()`. It falls back to `fb_init()` and `console_init()`. The `screen` marker adds `path`, `adopt_fb` and `adopt_console`.
 - The menu writes every one of its rows in full, and only its own rows.
 - `BOOT.CFG` is read with `ini_parse_sections()` and follows the rules of BOOT_PROTOCOL.md: one result per entry header, names of letters, digits, `_` and `-`, 8.3 paths stored in upper case, printable `cmdline` only, last value wins. The `config` marker adds `nopath`.
