@@ -26,6 +26,8 @@ def test_full_range(board, diag_image):
         assert 0x00400000 < start < 0x00500000 and start % 0x1000 == 0, m
         assert end == RAM_TOP[board], m
         assert int(m["bytes"]) == end - start
+        # Every byte read back was cleaned and invalidated first, with the caches on.
+        assert int(m["flushed"]) == int(m["bytes"]) and m["cache"] == "1", m
         assert int(m["ms"]) / 1000 < 10 + HOST_ALLOWANCE and took < 10 + HOST_ALLOWANCE, m
         prog = [p for p in events(vm, "diag_progress") if p["name"] == "mem"]
         assert prog and {p["step"] for p in prog} <= {"addr", "walk", "check", "inverse"}

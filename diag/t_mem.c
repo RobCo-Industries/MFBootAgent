@@ -1,15 +1,19 @@
 /*
  * The memory test. Writes each pattern over every range dg_mem_ranges()
  * allows, then reads it all back. With the MMU on, RAM is cached
- * write-back: the ranges are far larger than the caches, so the reads
- * come from RAM. "Run all" tests the first DG_MEM_QUICK_BYTES only.
+ * write-back. Each step is cleaned and invalidated from the D-cache
+ * just before it is read back, so the check reads RAM, never a dirty
+ * line the fill left behind. The result keys report the bytes flushed.
+ * "Run all" tests the first DG_MEM_QUICK_BYTES only.
  */
 
 #include <stdint.h>
 
 #include <robco/bootinfo.h>
+#include <robco/cache.h>
 #include <robco/fb.h>
 #include <robco/klibc.h>
+#include <robco/mmu.h>
 #include <robco/timer.h>
 
 #include "dg.h"
@@ -51,6 +55,7 @@ void dg_test_mem(dg_run_t *r)
     unsigned i;
     uint32_t total;
     uint64_t done = 0;
+    uint64_t flushed = 0;
     uint32_t t0;
     uint32_t ms;
     int rc;
@@ -105,7 +110,12 @@ void dg_test_mem(dg_run_t *r)
                     if (pass == 0) {
                         dg_pat_fill(pat, p, a, words);
                         plant(a, words);
-                    } else if (dg_pat_check(pat, p, a, words, &fault) != 0) {
+                    } else {
+                        /* Push dirty fill lines to RAM and drop them from the cache. */
+                        cache_flush_range((const void *)(uintptr_t)a, words * 4u);
+                        flushed += words * 4u;
+                    }
+                    if (pass == 1 && dg_pat_check(pat, p, a, words, &fault) != 0) {
                         r->result = DG_FAIL;
                         dg_keys(r, "pattern=%s addr=0x%08x expected=0x%08x found=0x%08x",
                                 dg_pat_name(pat), (unsigned)fault.addr,
@@ -136,5 +146,7 @@ void dg_test_mem(dg_run_t *r)
     dg_keys(r, "ranges=%u start=0x%08x end=0x%08x bytes=%u patterns=%u ms=%u", n,
             (unsigned)rg[0].start, (unsigned)rg[n - 1].end, (unsigned)total, DG_PAT_COUNT,
             (unsigned)ms);
+    /* Bytes cleaned and invalidated before the reads, and whether the MMU and caches are on. */
+    dg_keys(r, "flushed=%u cache=%d", (unsigned)(flushed / DG_PAT_COUNT), mmu_enabled());
     dg_text(r, DG_TX_MEM_OK, (unsigned)(total >> 20), DG_PAT_COUNT, (unsigned)((ms + 999u) / 1000u));
 }
