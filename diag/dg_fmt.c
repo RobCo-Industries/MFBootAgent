@@ -259,6 +259,176 @@ unsigned dg_percent(uint64_t done, uint64_t total)
     return (unsigned)(done * 100u / total);
 }
 
+const char *dg_u64(char out[DG_U64_SIZE], uint64_t v)
+{
+    char tmp[DG_U64_SIZE];
+    size_t n = 0;
+    size_t i;
+
+    do {
+        tmp[n++] = (char)('0' + v % 10u);
+        v /= 10u;
+    } while (v != 0);
+    for (i = 0; i < n; i++) {
+        out[i] = tmp[n - 1 - i];
+    }
+    out[n] = '\0';
+    return out;
+}
+
+static int keys_cut(const char *buf, size_t n)
+{
+    size_t k = sizeof(DG_KEYS_CUT) - 1;
+
+    return n >= k && k_strcmp(buf + n - k, DG_KEYS_CUT) == 0 &&
+           (n == k || buf[n - k - 1] == ' ');
+}
+
+void dg_keys_add(char *buf, size_t size, const char *fmt, va_list ap)
+{
+    const size_t reserve = 1 + sizeof(DG_KEYS_CUT); /* " keys_cut=1" and the end */
+    size_t n = k_strlen(buf);
+    size_t start = n;
+    int len;
+
+    if (keys_cut(buf, n)) {
+        return;
+    }
+    if (n != 0 && n + 1 + reserve <= size) {
+        buf[start++] = ' ';
+    }
+    if (start + reserve <= size) {
+        len = k_vsnprintf(buf + start, size - start - reserve + 1, fmt, ap);
+        if (len >= 0 && start + (size_t)len + reserve <= size) {
+            return;
+        }
+    }
+    /* It does not fit: drop it whole and mark the keys as cut. */
+    buf[n] = '\0';
+    k_snprintf(buf + n, size - n, "%s" DG_KEYS_CUT, n != 0 ? " " : "");
+}
+
+void dg_keys_text(char *buf, size_t size, const char *key, const char *text)
+{
+    size_t n = k_strlen(buf);
+    size_t sep = n != 0 ? 1u : 0u;
+    size_t klen = k_strlen(key) + 1u;
+    size_t room;
+
+    if (keys_cut(buf, n)) {
+        return;
+    }
+    /* "<key>=" and room for 4 bytes: one escape, or "%" and the end. */
+    if (n + sep + klen + 4u > size) {
+        if (n + 1u + sizeof(DG_KEYS_CUT) <= size) {
+            k_snprintf(buf + n, size - n, "%s" DG_KEYS_CUT, sep != 0 ? " " : "");
+        }
+        return;
+    }
+    k_snprintf(buf + n, size - n, "%s%s=", sep != 0 ? " " : "", key);
+    n += sep + klen;
+    room = size - n;
+    (void)dg_mval(buf + n, room < DG_MVAL_SIZE ? room : DG_MVAL_SIZE, text);
+}
+
+void dg_mark_fit(char *buf, size_t size, int len)
+{
+    const size_t mark = 1u + DG_STR_LEN(DG_KEYS_CUT);
+    size_t n;
+
+    if (size == 0 || (len >= 0 && (size_t)len < size) || size <= mark + 1u) {
+        return;
+    }
+    /* Keep the whole keys that leave room for " keys_cut=1". */
+    n = size - 1u - mark;
+    while (n > 0 && buf[n] != ' ') {
+        n--;
+    }
+    k_snprintf(buf + n, size - n, " " DG_KEYS_CUT);
+}
+
+static int mval_plain(unsigned char c)
+{
+    return c >= 0x21u && c <= 0x7eu && c != '%' && c != '=';
+}
+
+const char *dg_mval(char *out, size_t size, const char *in)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    const unsigned char *p = (const unsigned char *)(in != NULL ? in : "");
+    size_t pos = 0;
+
+    if (size < 4) {
+        if (size != 0) {
+            out[0] = '\0';
+        }
+        return out;
+    }
+    if (*p == '\0') {
+        k_memcpy(out, "%00", 4);
+        return out;
+    }
+    for (; *p != '\0'; p++) {
+        size_t k = mval_plain(*p) ? 1u : 3u;
+        /* Keep room for the cut mark while more bytes follow. */
+        size_t need = pos + k + (p[1] != '\0' ? 1u : 0u);
+
+        if (need > size - 1) {
+            out[pos++] = '%';
+            break;
+        }
+        if (k == 1) {
+            out[pos++] = (char)*p;
+        } else {
+            out[pos++] = '%';
+            out[pos++] = hex[*p >> 4];
+            out[pos++] = hex[*p & 0x0fu];
+        }
+    }
+    out[pos] = '\0';
+    return out;
+}
+
+static char printable(char c)
+{
+    unsigned char u = (unsigned char)c;
+
+    return u >= 0x20u && u <= 0x7eu ? c : '?';
+}
+
+const char *dg_sname(char *out, size_t size, const char *in, unsigned width)
+{
+    size_t n = in != NULL ? k_strlen(in) : 0;
+    size_t i;
+
+    if (size == 0) {
+        return out;
+    }
+    if (width < 4 || size <= width) {
+        out[0] = '\0';
+        return out;
+    }
+    if (n <= width) {
+        for (i = 0; i < n; i++) {
+            out[i] = printable(in[i]);
+        }
+        out[n] = '\0';
+        return out;
+    }
+    for (i = 0; i < width - 3u; i++) {
+        out[i] = printable(in[i]);
+    }
+    k_memcpy(out + i, "...", 4);
+    return out;
+}
+
+void dg_printable(char *text)
+{
+    for (; *text != '\0'; text++) {
+        *text = printable(*text);
+    }
+}
+
 int dg_timer_judge(uint64_t timer_us, uint32_t ticks, uint32_t asked_hz, uint32_t hz,
                    uint32_t missed, int32_t *ppm, uint32_t *limit_ppm)
 {

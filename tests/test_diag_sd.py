@@ -107,6 +107,45 @@ def test_short_diag_fails(board, diag_image, good_card_files, need_mtools, tmp_p
         assert rows[17] == "SD: FAILED. DIAG.SYS: short", rows
 
 
+def test_name_with_a_space(board, diag_image, good_card_files, need_mtools, tmp_path):
+    """A long name with a space stays one marker value, as in MAINT.SYS."""
+    files = good_card_files
+    files["/ROBCO/My Image.SYS"] = b"x" * 16
+    sd = mfboot.card(tmp_path, files)
+    with alone(diag_image, board, sd=sd) as vm:
+        m = run(vm, "sd")
+        assert (m["result"], m["images"], m["bad_images"]) == ("fail", "4", "1"), m
+        assert mfboot.mval(m["bad_path"]) == ("/ROBCO/My Image.SYS", False), m
+        found = {mfboot.mval(p)[0]: v for p, v in images(vm).items()}
+        assert found["/ROBCO/My Image.SYS"]["rc"] == "short", found
+        state(vm)
+        _, rows = dump(vm)
+        assert any(r.startswith("My Image.SYS") and "FAILED  short" in r for r in rows), rows
+
+
+def test_longest_name_keeps_its_result(board, diag_image, good_card_files, need_mtools, tmp_path):
+    """A 255-byte name of escaped bytes: rc and fs_rc survive, the cut path is marked."""
+    files = good_card_files
+    files["/ROBCO/" + mfboot.LONG_NAME] = b"x" * 16
+    sd = mfboot.card(tmp_path, files)
+    with alone(diag_image, board, sd=sd) as vm:
+        m = run(vm, "sd")
+        assert (m["result"], m["images"], m["bad_images"], m["writes"]) == ("fail", "4", "1", "0"), m
+        assert m["bad_rc"] in ("short", "open"), m
+        assert m["bad_rc"] == "short" or int(m["bad_fs_rc"]) < 0, m
+        assert "keys_cut" not in m, m
+        text, cut = mfboot.mval(m["bad_path"])
+        assert cut and ("/ROBCO/" + mfboot.LONG_NAME).startswith(text), m
+        long = [e for e in events(vm, "sd_image") if mfboot.mval(e["path"])[1]]
+        assert len(long) == 1, events(vm, "sd_image")
+        assert long[0]["rc"] == m["bad_rc"], long
+        assert long[0]["rc"] == "short" or int(long[0]["fs_rc"]) < 0, long
+        assert long[0]["size"] == "16", long
+        state(vm)
+        _, rows = dump(vm)
+        assert any(r.startswith("L% % % % ...") and "FAILED" in r for r in rows), rows
+
+
 def test_bad_magic_fails(board, diag_image, good_card_files, need_mtools, tmp_path):
     files = good_card_files
     files[mfboot.UOS] = mfboot.flip(files[mfboot.UOS], 0x20)

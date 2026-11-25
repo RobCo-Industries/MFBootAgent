@@ -309,7 +309,7 @@ static int f_closedir(void *ctx)
     return 0;
 }
 
-static int f_check(void *ctx, const dg_sd_entry_t *e)
+static int f_check(void *ctx, dg_sd_entry_t *e)
 {
     fake_t *f = ctx;
     unsigned i;
@@ -317,6 +317,9 @@ static int f_check(void *ctx, const dg_sd_entry_t *e)
     f->checks++;
     for (i = 0; i < f->n; i++) {
         if (strcmp(f->ents[i].name, e->name) == 0) {
+            if (f->ents[i].outcome == DG_SDF_OPEN) {
+                e->fs_rc = FS_ERR_CORRUPT;
+            }
             return f->ents[i].outcome;
         }
     }
@@ -564,4 +567,36 @@ TEST(blank_card_identity)
     CHECK_EQ(dg_sd_cid_blank(cid), 1);
     cid[3] = 0xfffffe00u;
     CHECK_EQ(dg_sd_cid_blank(cid), 0);
+}
+
+/* A file that does not open keeps its outcome and carries the fs code to the marker and row. */
+TEST(open_failure_keeps_its_fs_code)
+{
+    static const fake_ent_t ents[] = {
+        { "UOS.SYS", 4096, 0, DG_SDF_OK },
+        { "BAD.SYS", 2048, 0, DG_SDF_OPEN },
+    };
+    char line[400];
+    dg_sd_entry_t e;
+    fake_t f;
+    dg_sd_scan_t s;
+
+    memset(&f, 0, sizeof(f));
+    f.fail_at = -1;
+    CHECK_EQ(scan(&f, ents, 2, &s), DG_SD_SCAN_OK);
+    CHECK_EQ(s.first_bad, DG_SDF_OPEN);
+    CHECK_EQ(s.first_fs_rc, FS_ERR_CORRUPT);
+    dg_sd_bad_keys(line, sizeof(line), &s);
+    CHECK_STR(line, "bad_rc=open bad_fs_rc=-17");
+    memset(&e, 0, sizeof(e));
+    e.name = "BAD.SYS";
+    e.size = 2048;
+    e.fs_rc = FS_ERR_IO;
+    dg_sd_image_keys(line, sizeof(line), "/ROBCO", &e, DG_SDF_OPEN);
+    CHECK_STR(line, "rc=open size=2048 fs_rc=-1 path=/ROBCO/BAD.SYS");
+    dg_sd_row(line, sizeof(line), &e, DG_SDF_OPEN, "", 0);
+    CHECK_STR(line, "BAD.SYS          2048  FAILED  open, error -1");
+    /* Other outcomes carry no fs code. */
+    dg_sd_image_keys(line, sizeof(line), "/ROBCO", &e, DG_SDF_SHORT);
+    CHECK_STR(line, "rc=short size=2048 path=/ROBCO/BAD.SYS");
 }

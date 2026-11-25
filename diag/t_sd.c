@@ -8,7 +8,6 @@
 
 #include <stdint.h>
 
-#include <robco/alloc.h>
 #include <robco/blk.h>
 #include <robco/fs.h>
 #include <robco/klibc.h>
@@ -19,11 +18,9 @@
 
 #include "dg.h"
 #include "dg_sd.h"
+#include "dg_sdimg.h"
 
 #define DIR_PATH "/ROBCO"
-/* Largest image file the check reads: the OS slot is 12 MiB. */
-#define FILE_MAX (16u << 20)
-
 static blk_dev_t *card;
 static dg_sd_guard_t guard;
 static uint64_t read_total;     /* blocks the last read_blocks() read */
@@ -105,7 +102,7 @@ typedef struct {
     fs_dir_t *d;
     fs_stat_t st;
     unsigned row;       /* next work row of the file list */
-    char name[sizeof(((rimg_header_t *)0)->name) + 1]; /* header name of the last good image */
+    char name[DG_SDIMG_NAME + 1]; /* header name of the last good image */
     unsigned subtype;   /* and its subtype */
 } scan_ctx_t;
 
@@ -136,72 +133,30 @@ static int op_closedir(void *ctx)
     return fs_closedir(c->d);
 }
 
-/*
- * One image file: the first bytes by dg_sd_head(), then the whole file in
- * RAM above the OS slot through rimg_validate(), the loader's own steps.
- */
-static int op_check(void *ctx, const dg_sd_entry_t *e)
+/* An sd_image marker holds every key whole. */
+_Static_assert(DG_MARK_SIZE >= DG_STR_LEN("sd_image ") + DG_SD_IMAGE_KEYS_SIZE, "sd_image marker");
+
+/* One image file: dg_sd_check_image(), shared with the maintenance image. */
+static int op_check(void *ctx, dg_sd_entry_t *e)
 {
-    static fs_file_t f;
     char path[FS_PATH_MAX + 1];
-    uint8_t head[RIMG_META_OFFSET];
     scan_ctx_t *c = ctx;
-    const rimg_header_t *h = 0;
-    void *base = 0;
-    size_t room = robco_heap_high(&base);
-    int n = 0;
-    int rc;
 
     k_snprintf(path, sizeof(path), DIR_PATH "/%s", e->name);
-    if (e->size == 0 || e->size < RIMG_META_OFFSET) {
-        return dg_sd_head(e->size, 0, 0);
-    }
-    if (fs_open(&f, path, FS_READ) != 0) {
-        return DG_SDF_OPEN;
-    }
-    n = fs_read(&f, head, sizeof(head));
-    rc = dg_sd_head(e->size, head, n);
-    if (rc == DG_SDF_OK) {
-        if (room > FILE_MAX) {
-            room = FILE_MAX;
-        }
-        if (e->size > room) {
-            rc = RIMG_E_SIZE;
-        } else if (fs_seek(&f, 0, FS_SEEK_SET) != 0 ||
-                   fs_read(&f, base, e->size) != (int)e->size) {
-            rc = RIMG_E_IO;
-        } else {
-            rc = rimg_validate(base, e->size, 0, &h);
-        }
-        if (rc == RIMG_OK) {
-            k_memcpy(c->name, h->name, sizeof(h->name));
-            c->name[sizeof(h->name)] = '\0';
-            c->subtype = (unsigned)h->subtype;
-        }
-    }
-    (void)fs_close(&f);
-    return rc;
+    return dg_sd_check_image(path, e->size, c->name, &c->subtype, &e->fs_rc);
 }
 
 static void op_report(void *ctx, const dg_sd_entry_t *e, int out)
 {
     scan_ctx_t *c = ctx;
+    char keys[DG_SD_IMAGE_KEYS_SIZE];
     char line[DG_LINE_MAX];
 
     if (out != DG_SDF_OTHER) {
-        dg_mark("sd_image path=" DIR_PATH "/%s size=%u rc=%s", e->name, (unsigned)e->size,
-                dg_sd_outcome_name(out));
+        dg_sd_image_keys(keys, sizeof(keys), DIR_PATH, e, out);
+        dg_mark("sd_image %s", keys);
     }
-    if (out == DG_SDF_OTHER) {
-        k_snprintf(line, sizeof(line), "%-12s %8u  -       not an image", e->name,
-                   (unsigned)e->size);
-    } else if (out == DG_SDF_OK) {
-        k_snprintf(line, sizeof(line), "%-12s %8u  OK      %s subtype %u", e->name,
-                   (unsigned)e->size, c->name, c->subtype);
-    } else {
-        k_snprintf(line, sizeof(line), "%-12s %8u  FAILED  %s", e->name, (unsigned)e->size,
-                   dg_sd_outcome_name(out));
-    }
+    dg_sd_row(line, sizeof(line), e, out, c->name, c->subtype);
     dg_work_line(c->row++, line, 1);
 }
 
@@ -232,12 +187,16 @@ static int check_files(dg_run_t *r, dg_sd_scan_t *s)
     }
     dg_keys(r, "files=%u images=%u bad_images=%u others=%u", s->files, s->images, s->bad,
             s->others);
-    if (s->bad != 0) {
-        dg_keys(r, "bad_path=" DIR_PATH "/%s bad_rc=%s", s->bad_name,
-                dg_sd_outcome_name(s->first_bad));
-    }
     if (rc == DG_SD_SCAN_DIRERR) {
         dg_keys(r, "dir_rc=%d", s->dir_rc);
+    }
+    if (s->bad != 0) {
+        char keys[DG_SD_BAD_KEYS_SIZE];
+        char path[DG_TEXT_RAW_SIZE];
+
+        dg_sd_bad_keys(keys, sizeof(keys), s);
+        dg_keys(r, "%s", keys);
+        dg_keys_last(r, "bad_path", dg_sd_path(path, DIR_PATH, s->bad_name));
     }
     return rc;
 }
@@ -324,7 +283,10 @@ void dg_test_sd(dg_run_t *r)
     } else if (scan == DG_SD_SCAN_DIRERR) {
         dg_text(r, DG_TX_SD_DIRERR, sc.dir_rc);
     } else if (sc.bad != 0) {
-        dg_text(r, DG_TX_SD_BAD, sc.bad_name, dg_sd_outcome_name(sc.first_bad));
+        char name[DG_SD_NAME_COLS + 1];
+
+        dg_text(r, DG_TX_SD_BAD, dg_sname(name, sizeof(name), sc.bad_name, DG_SD_NAME_COLS),
+                dg_sd_outcome_name(sc.first_bad));
     } else if (guard.writes != 0) {
         dg_text(r, DG_TX_SD_WRITES, (unsigned)guard.writes);
     } else {

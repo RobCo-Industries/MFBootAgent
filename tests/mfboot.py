@@ -79,6 +79,35 @@ def order(vm, stage="bootagent"):
     return [m["ev"] for m in vm.markers() if m.get("stage") == stage]
 
 
+# The longest name the card helper writes, 255 bytes, almost all of them
+# '%' or ' ', which dg_mval() escapes. mcopy turns '=' into '_', so the
+# name has none.
+LONG_NAME = "L" + "% " * 124 + "XX.SYS"
+assert len(LONG_NAME) == 255
+
+
+def mval(value):
+    """Decodes a marker value of dg_mval(): each %XX is one byte, "%00" alone is
+    empty. Returns (text, cut): cut is True for a value that ends in a lone '%'."""
+    if value == "%00":
+        return "", False
+    out = bytearray()
+    i = 0
+    while i < len(value):
+        c = value[i]
+        assert " " not in value and 0x21 <= ord(c) <= 0x7E, value
+        if c == "%":
+            if i + 1 == len(value):
+                return out.decode("utf-8", "surrogateescape"), True
+            out.append(int(value[i + 1:i + 3], 16))
+            i += 3
+        else:
+            assert c != "=", value
+            out.append(ord(c))
+            i += 1
+    return out.decode("utf-8", "surrogateescape"), False
+
+
 def card(tmp_path, files, cfg=WAIT_CFG, name="sd.img"):
     """An SD card image with `files` ({"/ROBCO/X": bytes}) and BOOT.CFG (None: none)."""
     content = {k.lstrip("/"): v for k, v in files.items()}

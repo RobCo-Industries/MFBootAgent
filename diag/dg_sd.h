@@ -15,6 +15,8 @@
 
 #include <robco/blk.h>
 
+#include "dg_fmt.h"
+
 #define DG_SD_CHUNK     64u         /* blocks per read, 32 KiB */
 #define DG_SD_FULL_MAX  65536u      /* blocks: 32 MiB */
 #define DG_SD_SAMPLES   1024u       /* chunks when the volume is larger */
@@ -99,6 +101,7 @@ typedef struct {
     const char *name;
     uint32_t size;
     int is_dir;
+    int fs_rc;          /* check sets it with DG_SDF_OPEN: the fs_open() code */
 } dg_sd_entry_t;
 
 /*
@@ -114,7 +117,7 @@ typedef struct {
     int (*opendir)(void *ctx);
     int (*readdir)(void *ctx, dg_sd_entry_t *e);
     int (*closedir)(void *ctx);
-    int (*check)(void *ctx, const dg_sd_entry_t *e);
+    int (*check)(void *ctx, dg_sd_entry_t *e);
     void (*report)(void *ctx, const dg_sd_entry_t *e, int outcome);
     int (*abort)(void *ctx);
 } dg_sd_ops_t;
@@ -125,7 +128,8 @@ typedef struct {
 #define DG_SD_SCAN_DIRERR   2   /* opendir or readdir failed: dir_rc */
 #define DG_SD_SCAN_ABORT    3   /* abort asked to stop */
 
-#define DG_SD_NAME_MAX 64u
+/* A whole long name, FS_NAME_MAX bytes, and its end. */
+#define DG_SD_NAME_MAX 256u
 
 typedef struct {
     unsigned files;     /* regular files */
@@ -134,6 +138,7 @@ typedef struct {
     unsigned others;    /* files with another name */
     int dir_rc;         /* the failed opendir or readdir result, else 0 */
     int first_bad;      /* outcome of the first bad image */
+    int first_fs_rc;    /* its fs code with DG_SDF_OPEN, else 0 */
     char bad_name[DG_SD_NAME_MAX]; /* name of the first bad image, "" if none */
 } dg_sd_scan_t;
 
@@ -145,6 +150,47 @@ typedef struct {
  */
 int dg_sd_scan(const dg_sd_ops_t *ops, int noent_rc, dg_sd_scan_t *s);
 
+/* An outcome word: dg_sd_outcome_name() gives 7 bytes at most; a longer one is cut and marked. */
+#define DG_SD_RC_SIZE   16u
+
+/*
+ * The marker keys of one image of the scan: "rc=<outcome> size=<n>",
+ * "fs_rc=<code>" for DG_SDF_OPEN, then "path=<dir>/<name>" last. The
+ * outcome and the path go through dg_mval(). Both images print them:
+ * MAINT.SYS as `image`, DIAG.SYS as `sd_image`. A buffer of
+ * DG_SD_IMAGE_KEYS_SIZE holds every key whole; a smaller one can only cut
+ * the path, and marks the cut.
+ */
+#define DG_SD_IMAGE_KEYS_SIZE (DG_STR_LEN("rc=") + DG_SD_RC_SIZE - 1u + DG_KEY_UINT("size") + \
+                               DG_KEY_INT("fs_rc") + DG_KEY_TEXT("path") + 1u)
+void dg_sd_image_keys(char *out, size_t size, const char *dir, const dg_sd_entry_t *e,
+                      int outcome);
+
+/*
+ * The short keys of the first bad image: "bad_rc=<outcome>", then
+ * "bad_fs_rc=<code>" for DG_SDF_OPEN. Its path goes last in the result
+ * keys, as "bad_path", through dg_keys_text(): see dg_sd_path().
+ */
+#define DG_SD_BAD_KEYS_SIZE (DG_STR_LEN("bad_rc=") + DG_SD_RC_SIZE - 1u + DG_KEY_INT("bad_fs_rc") + 1u)
+void dg_sd_bad_keys(char *out, size_t size, const dg_sd_scan_t *s);
+
+/* "<dir>/<name>" into out of DG_TEXT_RAW_SIZE, raw, for dg_keys_text(). */
+const char *dg_sd_path(char out[DG_TEXT_RAW_SIZE], const char *dir, const char *name);
+
+/* The file column of a screen row: names longer than this end in "...". */
+#define DG_SD_NAME_COLS 12u
+
+/*
+ * One screen row of the scan, the same in both images: the file name in
+ * DG_SD_NAME_COLS columns, its size, then "OK" with the header name and
+ * subtype, "FAILED" with the outcome and, for "open", the fs code, or
+ * "-" for another file. Names
+ * from the card go through dg_sname(), so the row is one row of at most
+ * 79 columns. hdr_name is the header name of a good image, else unused.
+ */
+void dg_sd_row(char *out, size_t size, const dg_sd_entry_t *e, int outcome,
+               const char *hdr_name, unsigned subtype);
+
 /*
  * The write guard in front of the card. blk_write() refuses a device
  * flagged BLK_FLAG_READONLY before it calls the write function, so such
@@ -152,15 +198,20 @@ int dg_sd_scan(const dg_sd_ops_t *ops, int noent_rc, dg_sd_scan_t *s);
  * read-only flag: blk_write() reaches its write function, which counts
  * the attempt in `writes` and returns BLK_ERR_RO. It never calls the
  * card's write function. Reads go to the card.
+ *
+ * With `pass` set, writes and syncs go to the card and nothing counts.
+ * The maintenance image sets it only while a tool that writes runs. The
+ * diagnostics image never sets it.
  */
 typedef struct {
     blk_dev_t dev;      /* mount this one */
-    blk_dev_t *card;    /* the real device, never written */
+    blk_dev_t *card;    /* the real device, written only with pass set */
     uint32_t writes;    /* write attempts refused */
+    int pass;           /* 1: writes reach the card */
     int fail_multi;     /* test hook: reads of more than one block fail with BLK_ERR_IO */
 } dg_sd_guard_t;
 
-/* Builds the guard over card with writes and fail_multi at 0. */
+/* Builds the guard over card with writes, pass and fail_multi at 0. */
 void dg_sd_guard_init(dg_sd_guard_t *g, blk_dev_t *card);
 
 /*

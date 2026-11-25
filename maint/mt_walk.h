@@ -1,0 +1,118 @@
+/*
+ * The walk of the check card tool: every folder and every file of the
+ * boot volume, depth first, with the file system behind function pointers
+ * so the host tests can fake it. Pure: the host tests link it.
+ */
+#ifndef MT_WALK_H
+#define MT_WALK_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "../diag/dg_fmt.h"
+
+/* Folders open at once: the root and seven levels below it. */
+#define MT_WALK_DEPTH   8u
+/* The longest path, as the file system takes it. */
+#define MT_WALK_PATH    255u
+
+/* What failed, for error(). */
+#define MT_WE_OPENDIR   0   /* a folder does not open */
+#define MT_WE_READDIR   1   /* reading a folder failed: the rest of it is not checked */
+#define MT_WE_FILE      2   /* a file failed: rc from file() */
+#define MT_WE_DEEP      3   /* a folder below MT_WALK_DEPTH levels: not entered */
+#define MT_WE_LONG      4   /* a path longer than MT_WALK_PATH: not checked */
+
+/* file() result for a file that read fewer bytes than its size. */
+#define MT_WALK_SHORT   (-100)
+
+typedef struct {
+    const char *name;
+    uint32_t size;
+    int is_dir;
+} mt_walk_entry_t;
+
+/*
+ * opendir(level, path) opens the folder at `level`, 0 for the root "/".
+ * readdir(level) returns 1 with an entry, 0 at the end or a negative
+ * error. closedir(level) closes it. file(path, size) reads the whole file
+ * and returns 0, a negative error, or MT_WALK_SHORT. error() gets each
+ * failure with its path. abort() returns 1 to stop.
+ */
+typedef struct {
+    void *ctx;
+    int (*opendir)(void *ctx, unsigned level, const char *path);
+    int (*readdir)(void *ctx, unsigned level, mt_walk_entry_t *e);
+    int (*closedir)(void *ctx, unsigned level);
+    int (*file)(void *ctx, const char *path, uint32_t size);
+    void (*error)(void *ctx, const char *path, int what, int rc);
+    int (*abort)(void *ctx);
+} mt_walk_ops_t;
+
+typedef struct {
+    unsigned dirs;      /* folders opened, the root included */
+    unsigned files;     /* files checked */
+    unsigned errors;    /* every failure error() got */
+    uint64_t bytes;     /* sizes of the files that read whole */
+    int first_what;     /* MT_WE_* of the first failure */
+    int first_rc;       /* and its code */
+    char first_path[MT_WALK_PATH + 1]; /* and its path, "" if none */
+} mt_walk_t;
+
+/* Results of mt_walk(). */
+#define MT_WALK_OK      0   /* the whole volume was walked */
+#define MT_WALK_ABORT   1   /* abort() asked to stop */
+
+/*
+ * Walks from the root. Skips "." and "..". Every open folder is closed on
+ * every path. A failure is counted and the walk goes on with the next
+ * entry. Returns MT_WALK_OK or MT_WALK_ABORT.
+ */
+int mt_walk(const mt_walk_ops_t *ops, mt_walk_t *w);
+
+/* "opendir", "readdir", "file", "deep", "long". */
+const char *mt_walk_what(int what);
+
+/* 1 when the walk found no failure. */
+int mt_walk_clean(const mt_walk_t *w);
+
+/* The space of the volume, as fs_statvfs() gave it: rc is 0 or its error. */
+typedef struct {
+    int rc;
+    uint64_t free_bytes;
+    uint64_t total_bytes;
+    unsigned fat;
+} mt_space_t;
+
+/*
+ * The result keys of check card, every size whole: "dirs files bytes
+ * errors", then "free_bytes total_bytes fat" or "statvfs_rc".
+ */
+void mt_card_keys(char *out, size_t size, const mt_walk_t *w, const mt_space_t *sp);
+
+/* A mt_walk_what() word: 7 bytes at most. */
+#define MT_WHAT_MAX     DG_STR_LEN("opendir")
+
+/*
+ * The keys of a card_error marker: "what=<what> rc=<rc>", then
+ * "path=<path>" last, encoded. A buffer of MT_CARD_ERROR_KEYS_SIZE holds
+ * every key whole; a smaller one can only cut the path, and marks the cut.
+ */
+#define MT_CARD_ERROR_KEYS_SIZE (DG_STR_LEN("what=") + MT_WHAT_MAX + DG_KEY_INT("rc") + \
+                                 DG_KEY_TEXT("path") + 1u)
+void mt_card_error_keys(char *out, size_t size, const char *path, int what, int rc);
+
+/*
+ * The short key of the first failure: "first_what=<what>". Its path goes
+ * last in the result keys as "first_path", through mt_keys_last().
+ */
+#define MT_CARD_FIRST_KEYS_SIZE (DG_STR_LEN("first_what=") + MT_WHAT_MAX + 1u)
+void mt_card_first_keys(char *out, size_t size, const mt_walk_t *w);
+
+/* Work row 1: "<n> folders, <n> files, <n> errors." */
+void mt_card_counts(char *out, size_t size, const mt_walk_t *w);
+
+/* Work row 2: "Free <n> KiB of <n> KiB.", or the statvfs error. */
+void mt_card_free(char *out, size_t size, const mt_space_t *sp);
+
+#endif

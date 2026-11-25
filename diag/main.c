@@ -67,30 +67,31 @@ static unsigned req_item;
 
 void dg_mark(const char *fmt, ...)
 {
-    char buf[DG_LINE_MAX + DG_KEYS_MAX];
+    char buf[DG_MARK_SIZE];
     va_list ap;
+    int len;
 
     va_start(ap, fmt);
-    k_vsnprintf(buf, sizeof(buf), fmt, ap);
+    len = k_vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
+    dg_mark_fit(buf, sizeof(buf), len);
     k_printf("@RC stage=" ROBCO_STAGE_NAME " ev=%s\n", buf);
 }
 
 void dg_keys(dg_run_t *r, const char *fmt, ...)
 {
-    size_t n = k_strlen(r->keys);
     va_list ap;
 
-    if (n + 2 >= sizeof(r->keys)) {
-        return;
-    }
-    if (n != 0) {
-        r->keys[n++] = ' ';
-        r->keys[n] = '\0';
-    }
     va_start(ap, fmt);
-    k_vsnprintf(r->keys + n, sizeof(r->keys) - n, fmt, ap);
+    dg_keys_add(r->keys, sizeof(r->keys), fmt, ap);
     va_end(ap);
+}
+
+void dg_keys_last(dg_run_t *r, const char *key, const char *text)
+{
+    r->last_key = key;
+    k_strncpy(r->last_text, text, sizeof(r->last_text));
+    r->last_text[sizeof(r->last_text) - 1] = '\0';
 }
 
 void dg_text(dg_run_t *r, const char *fmt, ...)
@@ -100,6 +101,22 @@ void dg_text(dg_run_t *r, const char *fmt, ...)
     va_start(ap, fmt);
     k_vsnprintf(r->text, sizeof(r->text), fmt, ap);
     va_end(ap);
+}
+
+/*
+ * Text from the card can hold any byte. Every byte outside 0x20 to 0x7E
+ * goes out as '?', so a row stays one row on the screen and on the serial
+ * port.
+ */
+static void put_text(void (*put)(char), const char *text, size_t n)
+{
+    size_t i;
+
+    for (i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)text[i];
+
+        put(c >= 0x20u && c <= 0x7eu ? (char)c : '?');
+    }
 }
 
 /*
@@ -118,14 +135,14 @@ static void put_row(unsigned row, const char *text, unsigned attr, int to_uart)
         }
         console_set_cursor(0, row);
         console_set_attr(attr);
-        console_write(text, n);
+        put_text(console_putc, text, n);
         console_set_attr(CONSOLE_ATTR_NORMAL);
         for (; n + 1 < cols; n++) {
             console_putc(' ');
         }
     }
     if (to_uart && text[0] != '\0') {
-        uart_puts(text);
+        put_text(uart_putc, text, k_strlen(text));
         uart_putc('\n');
     }
 }
@@ -229,7 +246,7 @@ static void draw_menu(int to_uart)
         draw_item(i);
         if (to_uart) {
             dg_line_item(line, sizeof(line), i, i == menu.sel, results[i], texts[i]);
-            uart_puts(line);
+            put_text(uart_putc, line, k_strlen(line));
             uart_putc('\n');
         }
     }
@@ -264,7 +281,7 @@ static const test_fn tests[DG_TESTS] = {
 static int run_test(unsigned t, int mode)
 {
     static dg_run_t r;
-    char line[DG_LINE_MAX + DG_KEYS_MAX];
+    char line[DG_MARK_SIZE];
 
     k_memset(&r, 0, sizeof(r));
     r.mode = mode;
@@ -283,6 +300,9 @@ static int run_test(unsigned t, int mode)
     /* Video drew over the whole screen, so the menu comes back in full. */
     if (t == DG_T_VIDEO && dg.fb_ok) {
         draw_menu(0);
+    }
+    if (r.last_key != NULL) {
+        dg_keys_text(r.keys, sizeof(r.keys), r.last_key, r.last_text);
     }
     dg_line_diag(line, sizeof(line), dg_test_name(t), r.result, r.keys);
     dg_mark("%s", line);

@@ -1,5 +1,6 @@
 /* The diagnostics lines, markers, progress rate and verdicts: exact texts and limits. */
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -253,6 +254,74 @@ TEST(progress_rate)
     CHECK_EQ(dg_percent(11, 10), 100);
     CHECK_EQ(dg_percent(UINT64_MAX - 1, UINT64_MAX), 99);
     CHECK_EQ(dg_percent(UINT64_MAX / 2, UINT64_MAX), 50);
+}
+
+static void keys(char *buf, size_t size, const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    dg_keys_add(buf, size, fmt, ap);
+    va_end(ap);
+}
+
+/* A marker that lost keys ends with keys_cut=1; one that did not, never. */
+TEST(keys_cut_is_marked)
+{
+    char buf[40];
+    unsigned i;
+
+    buf[0] = '\0';
+    keys(buf, sizeof(buf), "a=%u", 1u);
+    keys(buf, sizeof(buf), "b=%s", "two");
+    CHECK_STR(buf, "a=1 b=two");
+    /* 28 + 11 + 1 = 40: the last key that fits with the reserve. */
+    buf[0] = '\0';
+    keys(buf, sizeof(buf), "%s", "xxxxxxxxxxxxxxxxxxxxxxxxxxx");
+    CHECK_EQ(strlen(buf), 27);
+    keys(buf, sizeof(buf), "c=%d", 1);
+    CHECK_STR(buf, "xxxxxxxxxxxxxxxxxxxxxxxxxxx keys_cut=1");
+    keys(buf, sizeof(buf), "d=1");
+    CHECK_STR(buf, "xxxxxxxxxxxxxxxxxxxxxxxxxxx keys_cut=1");
+    /* Fill with many keys: the buffer never overflows and ends marked. */
+    buf[0] = '\0';
+    for (i = 0; i < 50; i++) {
+        keys(buf, sizeof(buf), "k%u=%u", i, i);
+        CHECK(strlen(buf) < sizeof(buf));
+    }
+    CHECK(strlen(buf) >= 11);
+    CHECK_STR(buf + strlen(buf) - 11, " keys_cut=1");
+    /* A first key too long for an empty buffer. */
+    buf[0] = '\0';
+    keys(buf, sizeof(buf), "%s", "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy");
+    CHECK_STR(buf, "keys_cut=1");
+}
+
+TEST(u64_whole)
+{
+    char out[DG_U64_SIZE];
+
+    CHECK_STR(dg_u64(out, 0), "0");
+    CHECK_STR(dg_u64(out, 4294967295u), "4294967295");
+    CHECK_STR(dg_u64(out, 4294967296u), "4294967296");
+    CHECK_STR(dg_u64(out, 4294967297u), "4294967297");
+    /* 2 TiB, and 2 TiB in 512-byte blocks. */
+    CHECK_STR(dg_u64(out, (uint64_t)2 << 40), "2199023255552");
+    CHECK_STR(dg_u64(out, (uint64_t)1 << 32), "4294967296");
+    CHECK_STR(dg_u64(out, UINT64_MAX), "18446744073709551615");
+    CHECK_EQ(strlen(dg_u64(out, UINT64_MAX)) + 1, DG_U64_SIZE);
+}
+
+TEST(percent_past_4_gib)
+{
+    const uint64_t g4 = (uint64_t)1 << 32;
+    const uint64_t t2 = (uint64_t)2 << 40;
+
+    CHECK_EQ(dg_percent(g4 - 1, g4 * 2), 49);
+    CHECK_EQ(dg_percent(g4 + 1, g4 * 2), 50);
+    CHECK_EQ(dg_percent(t2 / 4, t2), 25);
+    CHECK_EQ(dg_percent(t2 - 1, t2), 99);
+    CHECK_EQ(dg_percent(t2, t2), 100);
 }
 
 TEST(timer_verdict)

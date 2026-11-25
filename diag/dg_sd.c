@@ -5,6 +5,7 @@
 #include <robco/klibc.h>
 #include <robco/rimg.h>
 
+#include "dg_fmt.h"
 #include "dg_sd.h"
 
 void dg_sd_plan(dg_sd_plan_t *p, uint64_t start, uint64_t blocks)
@@ -192,6 +193,7 @@ int dg_sd_scan(const dg_sd_ops_t *ops, int noent_rc, dg_sd_scan_t *s)
             if (out != DG_SDF_OK) {
                 if (s->bad == 0) {
                     s->first_bad = out;
+                    s->first_fs_rc = out == DG_SDF_OPEN ? e.fs_rc : 0;
                     k_strncpy(s->bad_name, e.name, sizeof(s->bad_name));
                     s->bad_name[sizeof(s->bad_name) - 1] = '\0';
                 }
@@ -222,11 +224,18 @@ static int guard_write(blk_dev_t *dev, uint64_t lba, uint32_t count, const void 
 {
     dg_sd_guard_t *g = (dg_sd_guard_t *)dev->priv;
 
-    (void)lba;
-    (void)count;
-    (void)in;
+    if (g->pass) {
+        return blk_write(g->card, lba, count, in);
+    }
     g->writes++;
     return BLK_ERR_RO;
+}
+
+static int guard_sync(blk_dev_t *dev)
+{
+    dg_sd_guard_t *g = (dg_sd_guard_t *)dev->priv;
+
+    return g->pass ? blk_sync(g->card) : 0;
 }
 
 void dg_sd_guard_init(dg_sd_guard_t *g, blk_dev_t *card)
@@ -237,7 +246,7 @@ void dg_sd_guard_init(dg_sd_guard_t *g, blk_dev_t *card)
     g->dev.flags &= ~BLK_FLAG_READONLY;
     g->dev.read = guard_read;
     g->dev.write = guard_write;
-    g->dev.sync = 0;
+    g->dev.sync = guard_sync;
     g->dev.priv = g;
 }
 
@@ -248,4 +257,61 @@ int dg_sd_cid_blank(const uint32_t cid[4])
     }
     return cid[0] == 0xffffffffu && cid[1] == 0xffffffffu && cid[2] == 0xffffffffu &&
            cid[3] == 0xffffff00u;
+}
+
+const char *dg_sd_path(char out[DG_TEXT_RAW_SIZE], const char *dir, const char *name)
+{
+    k_snprintf(out, DG_TEXT_RAW_SIZE, "%s/%s", dir, name != NULL ? name : "");
+    return out;
+}
+
+void dg_sd_image_keys(char *out, size_t size, const char *dir, const dg_sd_entry_t *e,
+                      int outcome)
+{
+    char rc[DG_SD_RC_SIZE];
+    char path[DG_TEXT_RAW_SIZE];
+
+    if (size == 0) {
+        return;
+    }
+    k_snprintf(out, size, "rc=%s size=%u", dg_mval(rc, sizeof(rc), dg_sd_outcome_name(outcome)),
+               (unsigned)e->size);
+    if (outcome == DG_SDF_OPEN) {
+        size_t n = k_strlen(out);
+
+        k_snprintf(out + n, size - n, " fs_rc=%d", e->fs_rc);
+    }
+    dg_keys_text(out, size, "path", dg_sd_path(path, dir, e->name));
+}
+
+void dg_sd_bad_keys(char *out, size_t size, const dg_sd_scan_t *s)
+{
+    char rc[DG_SD_RC_SIZE];
+    int n = k_snprintf(out, size, "bad_rc=%s",
+                       dg_mval(rc, sizeof(rc), dg_sd_outcome_name(s->first_bad)));
+
+    if (s->first_bad == DG_SDF_OPEN && n >= 0 && (size_t)n < size) {
+        k_snprintf(out + n, size - (size_t)n, " bad_fs_rc=%d", s->first_fs_rc);
+    }
+}
+
+void dg_sd_row(char *out, size_t size, const dg_sd_entry_t *e, int outcome,
+               const char *hdr_name, unsigned subtype)
+{
+    char name[DG_SD_NAME_COLS + 1];
+    char hdr[DG_SD_NAME_COLS + 8];
+
+    (void)dg_sname(name, sizeof(name), e->name, DG_SD_NAME_COLS);
+    if (outcome == DG_SDF_OTHER) {
+        k_snprintf(out, size, "%-12s %8u  -       not an image", name, (unsigned)e->size);
+    } else if (outcome == DG_SDF_OK) {
+        k_snprintf(out, size, "%-12s %8u  OK      %s subtype %u", name, (unsigned)e->size,
+                   dg_sname(hdr, sizeof(hdr), hdr_name, 16), subtype);
+    } else if (outcome == DG_SDF_OPEN) {
+        k_snprintf(out, size, "%-12s %8u  FAILED  open, error %d", name, (unsigned)e->size,
+                   e->fs_rc);
+    } else {
+        k_snprintf(out, size, "%-12s %8u  FAILED  %s", name, (unsigned)e->size,
+                   dg_sd_outcome_name(outcome));
+    }
 }

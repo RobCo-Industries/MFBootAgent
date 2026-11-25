@@ -15,6 +15,15 @@
 | `test_menulines.c` | Every line of the screen and the 79-column limit |
 | `test_boot.c` | Loader results to codes and lines, the accepted subtypes, the header check order up to the subtype, the boot info fields this stage writes, the four cases of the `boot_flags` bit 1 rule |
 | `test_keymap.c` | Every key code with press, repeat and release, every character, other events |
+| `test_maint_ui.c` | The maintenance image's menu, the yes and no rule of a question, a held key that answers once, the stop keys, the tool names and every row within 79 columns |
+| `test_maint_cfg.c` | `[maint]` of `BOOT.CFG`: off by default, `on` and `off` in any case, bad values, last value wins, two sections, unknown keys, a bad line |
+| `test_maint_walk.c` | The check card walk over a fake tree: counts, each failure with its path, a folder read error, the depth and path limits, a stop that closes every folder, a root that does not open |
+| `test_maint_home.c` | The `/UOS/HOME` entries view file lists and the `TERMINAL.CFG` path limit |
+| `test_maint_view.c` | The view file pager: line ends, wraps, tabs, binary bytes shown as `.`, the 16384-byte cap, an empty file |
+| `test_maint_clock.c` | The set clock form: buttons, typed digits, wraps, and the check of the chip's range and the calendar. With a fake clock: a failed write, a failed read back, a read back earlier or more than 2 s later |
+| `test_maint_users.c` | The restore users decision table: only a yes after the question writes |
+| `test_maint_marker.c` | Marker values with text from the card: each marker built with a hostile name, then split and decoded as a reader does. The encoder `dg_mval()` is shared by `MAINT.SYS` and `DIAG.SYS`. |
+| `test_startkeys.c` | The start key rule on the road into `MAINT.SYS`: each button held through the handoff, its guard press, repeats and release dropped, the next press acting, port and console keys acting, another button acting |
 | `test_maintreq.c` | The maintenance request: each row of the spec's failure table, the 63-byte line with each line end, binary and long content, the delete result, the screen at start with `why=request` or `flag`, the held BACK, every road for `boot_flags` bits 1 and 3 over subtypes, results, received flags and trust, and the `MAINT` entry or the fixed path |
 | `test_maintscr.c` | The first BACK skipped after a request with BACK held, the request rows and the notice. Every key on every action, every page's lines, long names and paths cut as the menu cuts them, the screen on 80 by 18 and 80 by 30 grids |
 
@@ -39,7 +48,8 @@ How the stage starts:
 | `test_chain.py` | After chain1: the screen is adopted, the old text stays, the boot info keeps earlier fields and sets new ones. After chain1 with no framebuffer: the `init` path. With `RETROS_IMG`: BIOS, MFBootAgent and the test OS in order, and the BIOS text above the menu. |
 | `test_env_hygiene.py` | No test copies the host environment |
 | `test_maint.py` | The maintenance screen opened by `M`, BACK, the port and `boot_flags` bit 1 from `tests/chain1maint`. Each action, verify with good and bad entries and with the card ejected, the countdown not restarting, `maint` and `key select` in one write in both orders, bit 1 in the next stage's boot info, the input back ends, the screen and verify goldens. |
-| `test_maint_req.py` | `/ROBCO/MAINT.REQ` on cards made by `card()`: no file, a line, an empty file, binary content, 64 and 63 bytes, a folder of that name, a request with BACK held through the GPIO guard, a delete that fails, two boots in a row with the file gone from the card image after the first, a request then UOS with bits 1 and 3 read by the test OS, a request with bit 1 received from `tests/chain1maint`, bit 1 received with BACK held, through `after()` with qtest, `MAINT` from the menu with bit 1 set and bit 3 clear, the screen starting `/ROBCO/MAINT.SYS` with `choose index=-1`, with no `MAINT` entry and with no `BOOT.CFG`, and a missing `MAINT.SYS`. The test OS sealed with subtype 2 stands in for `MAINT.SYS`. |
+| `test_maint_req.py` | `/ROBCO/MAINT.REQ` on cards made by `card()`: no file, a line, an empty file, binary content, 64 and 63 bytes, a folder of that name, a request with BACK held through the GPIO guard, a delete that fails, two boots in a row with the file gone from the card image after the first, a request then UOS with bits 1 and 3 read by the test OS, a request with bit 1 received from `tests/chain1maint`, bit 1 received with BACK held, through `after()` with qtest, `MAINT` from the menu with bit 1 set and bit 3 clear, the screen starting `/ROBCO/MAINT.SYS` with `choose index=-1`, with no `MAINT` entry and with no `BOOT.CFG`, and a missing `MAINT.SYS`. The test OS sealed with subtype 2 stands in for `MAINT.SYS`, because these tests read the flags from the image they boot and the test OS prints them. |
+| `test_buttons.py` | GPIO buttons on the boot menu, BACK and DOWN and SELECT held at start, the all-lines-low guard, two buttons in the `DIAG.SYS` input view. See [GPIO buttons](#gpio-buttons). |
 | `test_card_writes.py` | No QEMU: the agent links no writing call of the file system API but `fs_unlink()`, calls it once with the request's path, and opens every file with `FS_READ` |
 | `test_port_replies.py` | `state()` and `batch()` against a fake port, no QEMU: a reply left unread by a raw write is reported |
 | `test_timing_skips.py` | No QEMU: the library's host timing skip limit is loaded, and a starved timer skips with a reason it counts |
@@ -89,6 +99,23 @@ These skips go through RobCo-Core's `harness.hosttiming.skip()`, with the reason
 QEMU models no cache. The memory test proves that the flush runs over every byte, not that it reaches RAM on a board. Nothing here is validated on hardware.
 
 `test_diag_mem.py` allows a full pass `HOST_ALLOWANCE`, 20 s, above 10 s. The input idle test waits 20 s. Each test file takes under 35 s per board.
+
+
+## The maintenance image
+
+`tests/test_maint_*.py` start `build/maint.sys` alone, through a two-word image at `0x8000`, or from the agent's `MAINT` entry, with the helpers in `tests/maintimg.py`. They drive it through the maintenance port with `tool <name>`, `key`, `char` and `text`, and send Ctrl-C on the serial console. They read the screen only after `state()`. Each card test hashes the card file before and after a read-only tool, and reads `/UOS` with mtools after restore users.
+
+- `test_maint_image.py`: the markers in order, the menu, the start from the agent's menu with a trusted handoff and an adopted screen, no card, the port commands, the `[maint]` cases of the spec's key table, a missing `BOOT.CFG` and a bad line. The shipped image answers `wprobe` with `err unknown command` and prints no `write_hook`. The test build prints it.
+- `test_maint_card.py`: a good card, a file whose directory entry claims more bytes than its clusters hold, a card filled to its last 64 KiB with the port answering during the walk, a stop, and the write probe.
+- `test_maint_images.py`: a good card, a truncated and a wrong-CRC image, an empty and a short one, no `/ROBCO`, and the write probe.
+- `test_maint_view.py`: `BOOT.CFG` over three pages, a missing, an empty, an oversized and a binary file, ENTER to close, a cancel, and the write probe. `UOS.CFG` and `DEVICES.CFG`, two users of which one has a `TERMINAL.CFG`, 17 user folders with a cut list, and a `/UOS/HOME` with no `TERMINAL.CFG`.
+- `test_maint_clock.py`: no chip, typed digits and a yes read back from QEMU's DS1338, buttons and ESC at the question, an invalid date and the year 2100, Ctrl-C.
+- `test_maint_users.py`: the setting absent, off and bad; no default file and an empty one; `n`, ESC, Ctrl-C, `q` and DOWN at the question; ENTER, `y` and `Y`. A yes leaves `SYSUAF.DAT` equal to the default byte for byte and no work file. Every refusal leaves the old bytes.
+- `test_maint_buttons.py`: GPIO buttons through `harness.pigpio`: UP, DOWN and SELECT on the menu, BACK at the view file chooser, BACK then SELECT at the restore users question. No button is pressed twice in a row, because nothing waits for the guest to see a release.
+- `test_maint_restart.py`: restart from the port and from the menu, then the image boots again.
+- `test_maint_road.py`: the real `MAINT.SYS` started from the agent. A request, the screen with `why=request`, its start action, and the image with a trusted handoff, an adopted screen, bits 1 and 3 in its `handoff` marker and `Started by a request.` on its status row. `MAINT` from the menu with bit 1 set and bit 3 clear and `Maintenance asked.`. The fixed path with no `MAINT` entry and with no `BOOT.CFG`. A restart from the image, then a normal boot with `maint_req result=none`. On raspi2b only, restore users through the chain: `[maint] restore_users = on`, a request, a yes, a restart, and `SYSUAF.DAT` equal to the default on the card image. SELECT held from power-on through the agent's screen into the image: the image's guard queues it, the menu drops it and its release, DOWN pressed after the release moves the bar, and the next SELECT runs that tool.
+
+Without the start key rule in `maint/main.c`, `test_select_held_into_the_image_runs_no_tool` fails: check card runs at once. Without the flags on the status row, `test_request_to_the_real_image` and `test_maint_from_the_menu` fail.
 
 ## The failed delete
 
