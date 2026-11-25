@@ -99,14 +99,34 @@ static const struct {
 /* The guard ends after INPUT_GPIO_GUARD_MS of ticks: wait a little longer, then go on. */
 #define GPIO_GUARD_WAIT_MS  (INPUT_GPIO_GUARD_MS * 3)
 
+static int guard_checking(void *ctx)
+{
+    (void)ctx;
+    return input_gpio_status() == INPUT_GPIO_CHECKING;
+}
+
+static uint32_t guard_now(void *ctx)
+{
+    (void)ctx;
+    return timer_now_ms();
+}
+
+/* Sleeps until the next interrupt, the tick at the latest. Takes no event. */
+static void guard_nap(void *ctx)
+{
+    (void)ctx;
+    __asm__ volatile("wfi" ::: "memory");
+}
+
 /*
  * Starts the GPIO backend and waits for its stuck-line guard. Returns
  * input_gpio_start()'s code. With no buttons wired every line reads
- * pressed, and the backend disables itself.
+ * pressed, and the backend disables itself. Buttons held when the guard
+ * ends come as presses, and the wait leaves them for the menu.
  */
 static int gpio_start(void)
 {
-    uint32_t t0;
+    mfb_guard_io_t io = { guard_checking, guard_now, guard_nap, NULL };
     unsigned i;
     int rc = 0;
 
@@ -116,13 +136,8 @@ static int gpio_start(void)
     if (rc == 0) {
         rc = input_gpio_start(MFB_TICK_HZ, GPIO_DEBOUNCE_MS);
     }
-    t0 = timer_now_ms();
-    while (rc == 0 && input_gpio_status() == INPUT_GPIO_CHECKING &&
-           timer_now_ms() - t0 < GPIO_GUARD_WAIT_MS) {
-        input_event_t ev;
-
-        /* No event can come yet: the console and the port start after this. */
-        (void)input_wait(&ev, 10);
+    if (rc == 0) {
+        mfb_guard_wait(&io, GPIO_GUARD_WAIT_MS);
     }
     return rc;
 }

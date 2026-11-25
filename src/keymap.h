@@ -45,4 +45,22 @@ int mfb_key_map(const input_event_t *ev);
 /* "key", "button", "port" or "flag". "unknown" for other values. */
 const char *mfb_why_name(int why);
 
+/*
+ * The start wait for the GPIO guard. The guard reports held buttons as
+ * presses in the tick where it ends, so the wait must leave the queue as
+ * it is: the menu takes those events.
+ *   checking: non-zero while the guard runs.
+ *   now_ms:   the system timer.
+ *   nap:      waits a short time and takes nothing.
+ */
+typedef struct {
+    int (*checking)(void *ctx);
+    uint32_t (*now_ms)(void *ctx);
+    void (*nap)(void *ctx);
+    void *ctx;
+} mfb_guard_io_t;
+
+/* Waits while the guard runs, for at most `limit_ms`. */
+void mfb_guard_wait(const mfb_guard_io_t *io, uint32_t limit_ms);
+
 #endif

@@ -61,3 +61,13 @@ const char *mfb_why_name(int why)
     default:             return "unknown";
     }
 }
+
+void mfb_guard_wait(const mfb_guard_io_t *io, uint32_t limit_ms)
+{
+    uint32_t t0 = io->now_ms(io->ctx);
+
+    /* It never takes an event: the menu loop takes them all, in order. */
+    while (io->checking(io->ctx) && io->now_ms(io->ctx) - t0 < limit_ms) {
+        io->nap(io->ctx);
+    }
+}
