@@ -57,7 +57,7 @@ Each row of the menu shows the last result of its test and a short detail. The d
 
 ### mem
 
-The test writes every range from the end of its own image, BSS and stacks to the top of ARM RAM. The top comes from the boot info, else the mailbox. It never writes the handoff block, the firmware blob copy, the framebuffer or the image. `dg_mem_ranges()` computes the ranges, cut to 4 KiB pages.
+The test writes every range from the end of its own image, BSS and stacks to the top of ARM RAM. The top comes from the boot info, else the mailbox. When both exist, the boot info's range must lie inside the mailbox's ARM memory, or the test fails first with `why=top` and the text "Boot info RAM past mailbox". A smaller range passes: an earlier stage may keep RAM back. It never writes the handoff block, the firmware blob copy, the framebuffer or the image. `dg_mem_ranges()` computes the ranges, cut to 4 KiB pages.
 
 The patterns, in order:
 
@@ -82,7 +82,7 @@ The card is read through a write guard in front of its block device. The guard's
 
 The guard carries no read-only flag on purpose. `blk_write()` refuses a device flagged `BLK_FLAG_READONLY` before it calls the write function, so a flagged guard could never count an attempt. A host test sends writes through `blk_write()` and checks that the guard counts and refuses each one, and that the card sees none.
 
-1. The card identity: type, manufacturer, OEM, product name, serial and size.
+1. The card identity: type, manufacturer, OEM, product name, serial and size. A raw CID of all zeros or all ones fails with `why=cid`: a card that answered sends its own ID, so a blank one means the bus read no data. A card size of 0 already fails `sd_init()`. A boot volume that ends past the card fails at the mount, with `why=mount`.
 2. The blocks of the boot volume, in reads of 64 blocks. A volume of up to 65536 blocks, 32 MiB, is read whole. A larger one is read as 1024 reads spread from its first block to its last. So the test reads at most 32 MiB. A failed read is retried block by block to find the bad blocks. The failed read still fails the test, even when every block then reads alone. Some cards and controllers fail only on multi-block reads, and the boot loader reads that way. `chunk_errors` counts the failed reads and `errors` the blocks that failed alone. The row shows `N chunk reads failed`, or `Bad N blk, M chunks` when blocks failed too.
 3. The files of `/ROBCO`, by the rule below.
 
@@ -107,11 +107,11 @@ A read error of the directory fails the test with `dir_rc`, the error code. It n
 
 ### video
 
-The test reads width, height, depth, pixel order and pitch from the mailbox and compares them with the screen in use. Then it draws:
+The test reads width, height, depth, pixel order, pitch, virtual size, virtual offset and alpha mode from the mailbox. `dg_video_judge()` compares the first five with the framebuffer in use. A different size, depth or pitch fails with `why=mismatch`. A different pixel order fails with `why=order`, `mode_order` and `fb_order`: `fb_rgb()` draws with the framebuffer's order, so the colours would come out swapped. A virtual offset other than 0 fails with `why=offset`: the screen would show another part of the buffer. Then it draws:
 
 colour bars, a grid every 40 pixels with a one-pixel border on all four edges, a grey ramp, solid red, green, blue, white and black.
 
-Alone, a key steps to the next pattern, and each pattern waits at most 30 s. In run all each pattern shows for 300 ms. A person must judge the picture: "ok" only means the mode reads back and every pattern was drawn.
+Alone, a key steps to the next pattern, and each pattern waits at most 30 s. In run all each pattern shows for 300 ms. The test reads no pixel back. A person must judge the picture: "ok" only means the mode matches the framebuffer and every pattern was drawn. The QEMU tests read the pixels from a screenshot.
 
 ### audio
 
@@ -119,13 +119,15 @@ Five tones of 150 ms, then a six-note tune, through `audio.h`. The `backend` key
 
 When `audio_init()` returns `AUDIO_ERR_NO_PWM` or `AUDIO_ERR_PIN`, the PWM failed and the trace backend took over. The test still plays through the trace, then fails with the `init` code, since no sound came out.
 
+When the PWM probe finds no PWM to drive and `audio_init()` returns 0, as in QEMU, the test plays through the trace and reports "ok" with `backend=trace`. That "ok" proves the calls and their timing, not a sound. A person must listen on a board, and `backend=pwm` is the only result that drove the pins.
+
 ### input
 
-Each event shows on the screen and as an `input_event` marker, with its source, type, code and value. A row per GPIO button shows pressed or released. The view leaves on ESC twice within 1 s, BACK held for 1.5 s, or 20 s with no event. A single BACK stays, so the BACK button can be tried. Run all skips it: `why=interactive`.
+Each event shows on the screen and as an `input_event` marker, with its source, type, code and value. A row per GPIO button shows pressed or released. The view leaves on ESC twice within 1 s, BACK held for 1.5 s, or 20 s with no event. A single BACK stays, so the BACK button can be tried. Run all skips it: `why=interactive`. "ok" means the view opened and closed. It never fails on a key that did not come: only a person knows which key they pressed, so `events` and the event rows are for that person.
 
 ### timer
 
-The tick interrupt reads the system timer at its first tick and 100 ticks later, 1 s at 100 Hz. The limit is one tick period over the window, 10000 ppm. A missed tick fails. `missed` counts every tick missed during the test. `window_missed` counts those between the first and the last tick, so `us` covers 100 plus `window_missed` periods. The test gives up after 3 s with no tick.
+The tick interrupt reads the system timer at its first tick and 100 ticks later, 1 s at 100 Hz. The limit is one tick period over the window, 10000 ppm. A missed tick fails. The judge also compares the rate the tick driver reports, `hz`, with the rate the image asked, `asked_hz`. A tick that runs steadily at another rate fails. `missed` counts every tick missed during the test. `window_missed` counts those between the first and the last tick, so `us` covers 100 plus `window_missed` periods. The test gives up after 3 s with no tick.
 
 ### rng
 
@@ -141,11 +143,31 @@ The two PCA9554 of the terminal controller board, at `0x20` and `0x21` on I2C1.
 
 STRICTLY READ-ONLY. Relays and door locks may hang on these pins. The test reads the four registers of each chip with a one-byte register pointer and a read. It never writes an output, a direction or the polarity. `gpiox_attach()` writes the polarity register when it is not 0, so the test attaches a chip only when its polarity reads 0. Then the attach writes nothing. The image does not link `gpiox_config()`, `gpiox_write()` or `gpiox_write_port()`, and a test checks this.
 
-A chip is absent only when it does not acknowledge the first read. Any other failed read fails the test, as does a failed read in the live view.
+A chip is absent only when it does not acknowledge the first read. A chip whose four registers all read `0xff` fails with `stuck<n>=1` and an `expander_err` marker with `at=stuck`. A fresh chip holds polarity 0, and `gpiox_attach()` writes 0 there, so all ones means a data line held high after the address byte. Any other failed read fails the test, as does a failed read in the live view.
 
 A chip whose polarity reads not 0 is never attached. The test reads its input port raw, and that path is not an error. A chip whose polarity reads 0 is attached. When a read inside `gpiox_attach()` fails, the test counts a bus error, prints an `expander_err` marker with `at=attach`, adds the `attach<n>=error rc<n>` keys and fails.
 
 Alone, a live view shows the input port of each chip, a row per line from `X0.0` to `X1.7`, so a person can press a sensor contact and see the bit move. Each change prints an `expander_in` marker. ESC leaves, as does one minute with no change and no key. Run all reports presence and the registers once.
+
+## What each test checks and what it only reports
+
+A test reports OK only for what it measured. Each value a test reads is part of the verdict, reported in a marker key, or both. The values below are reported only, with the reason a wrong value cannot mean a fault the test could see.
+
+| Test | Part of the verdict | Reported only, and why |
+|---|---|---|
+| `mem` | Every word of every pattern, the ranges, the boot info's RAM inside the mailbox's | A boot info range smaller than the mailbox's: an earlier stage may keep RAM back. `flushed`, `cache`, `ms`: they describe the run |
+| `sd` | `sd_init()`, a blank CID, the mount, every chunk and block read, every `/ROBCO` image, the directory read, write attempts | `mid`, `oid`, `pnm`, `psn`: any value a card sends is valid. The partition type: the mount accepts only FAT. `kib_s`, `ms`, `sampled` |
+| `video` | Mailbox answer, width, height, depth, pitch, pixel order, virtual offset, every pattern drawn | Virtual size: the pitch and the offset already cover what the screen shows. Alpha mode: `fb_rgb()` writes alpha `0xff` and the library never sets the mode, so the test has no expected value. A wrong mode shows as a blank picture for the person. The picture: no pixel is read back |
+| `audio` | `audio_init()`, every tone and the tune within its bound, a PWM that fell back to trace | `backend=trace` with `init=0`: no PWM was found to drive, see audio above. The sound itself: only a person hears it |
+| `input` | Nothing past the view opening and closing | `events`, `why`, `gpio`: a missing key press is not a fault without a person who pressed it |
+| `timer` | A tick within 3 s, the window within 10000 ppm, missed ticks, the rate asked against the rate the driver reports | `window_missed`: it explains `us` |
+| `rng` | `rng_init()`, every read, a word equal to the one before, the count of set bits | Nothing else. A constant or all-zero generator fails on repeats or bits |
+| `rtc` | I2C start, the chip, the halt or oscillator-stop flag, every time field in range, 12-hour mode decoded | `chip`, `time`: any valid time may be right |
+| `expander` | Every register read, the attach, all four registers `0xff`, every read in the live view | Input, output, polarity and configuration values: an earlier stage or the wiring may set them. All zeros: every pin an output driven low reads that way |
+
+The RTC range checks live in RobCo-Core's `rtc_regs_decode()`. A month of 13, a day of 0, a day past the month's end or a reserved bit set gives `RTC_ERR_DATA`, and the test fails with `why=read`.
+
+Nothing here is validated on real hardware.
 
 ## Run all
 
