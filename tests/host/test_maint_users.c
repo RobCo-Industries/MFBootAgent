@@ -72,7 +72,7 @@ TEST(results)
         const char *why;
     } rows[] = {
         { MT_US_OFF, MT_US_ANS_NONE, 0, 0, MT_OFF, "setting" },
-        { MT_US_CONFIG, MT_US_ANS_NONE, 0, 0, MT_OFF, "config" },
+        { MT_US_CONFIG, MT_US_ANS_NONE, 0, 0, MT_FAIL, "config" },
         { MT_US_MISSING, MT_US_ANS_NONE, 0, 0, MT_ABSENT, "missing" },
         { MT_US_EMPTY, MT_US_ANS_NONE, 0, 0, MT_FAIL, "empty" },
         { MT_US_LARGE, MT_US_ANS_NONE, 0, 0, MT_FAIL, "large" },

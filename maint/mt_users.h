@@ -20,7 +20,7 @@
 #define MT_US_LARGE     3   /* the default file is larger than MT_USERS_MAX */
 #define MT_US_STAT      4   /* the default file does not stat */
 #define MT_US_ASK       5   /* all good: ask the question */
-#define MT_US_CONFIG    6   /* BOOT.CFG did not read or parse: off, the setting not known */
+#define MT_US_CONFIG    6   /* BOOT.CFG did not read or parse: FAIL, the setting not known */
 
 /*
  * on: the [maint] setting. cfg_known: mt_cfg_known(), 0 when the start

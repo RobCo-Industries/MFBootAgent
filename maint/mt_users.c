@@ -42,7 +42,7 @@ int mt_users_result(int check, int answer, int read_rc, int write_rc, const char
         w = "setting";
         break;
     case MT_US_CONFIG:
-        r = MT_OFF;
+        /* The setting is not known: never a pass, nothing changes. */
         w = "config";
         break;
     case MT_US_MISSING:

@@ -131,12 +131,12 @@ def test_config_does_not_read(board, maint_image, good_files, need_mtools, tmp_p
         assert rows[12] == f"BOOT.CFG does not read: error {rc}. Restore users is off.", rows
         run_users(vm)
         m = wait_result(vm, "restore_users", 1)
-        assert (m["result"], m["why"], m["rc"]) == ("off", "config", rc), m
+        assert (m["result"], m["why"], m["rc"]) == ("fail", "config", rc), m
         assert events(vm, "ask") == [], vm.serial
         state(vm)
         _, rows = dump(vm)
         assert rows[14] == f"BOOT.CFG does not read: error {rc}. Restore users is off.", rows
-        assert rows[12] == f"Restore users: OFF. Off: BOOT.CFG error {rc}.", rows
+        assert rows[12] == f"Restore users: FAILED. BOOT.CFG error {rc}.", rows
     assert read_card_file(sd, USERS_DAT) == OLD
 
 
@@ -150,7 +150,7 @@ def test_config_line_does_not_parse(board, maint_image, good_files, need_mtools,
         assert rows[12] == f"BOOT.CFG line {line} does not parse. Restore users is off.", rows
         run_users(vm)
         m = wait_result(vm, "restore_users", 1)
-        assert (m["result"], m["why"], m["line"]) == ("off", "config", line), m
+        assert (m["result"], m["why"], m["line"]) == ("fail", "config", line), m
     assert read_card_file(sd, USERS_DAT) == OLD
 
 

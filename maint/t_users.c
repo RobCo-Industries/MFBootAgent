@@ -43,9 +43,9 @@ void mt_tool_users(mt_run_t *r)
         mt_cfg_status(line, sizeof(line), &mt.cfg);
         mt_work_line(0, line, 1);
         if (mt.cfg.read_rc != 0) {
-            mt_text(r, "Off: BOOT.CFG error %d.", mt.cfg.read_rc);
+            mt_text(r, "BOOT.CFG error %d.", mt.cfg.read_rc);
         } else {
-            mt_text(r, "Off: BOOT.CFG line %u bad.", mt.cfg.syntax_line);
+            mt_text(r, "BOOT.CFG line %u bad.", mt.cfg.syntax_line);
         }
         break;
     case MT_US_OFF:

@@ -80,7 +80,7 @@ Results:
 | OK | The tool did its job and found no fault |
 | FAILED | A read, a check or a write failed, or a read-only tool tried to write |
 | ABSENT | What the tool needs is not there: no card, no clock chip, no file |
-| OFF | Restore users is off in `BOOT.CFG` |
+| OFF | Restore users is off in a `BOOT.CFG` that reads: the key is absent, `off` or a bad value |
 | REFUSED | The person said no or cancelled. Nothing was written. |
 
 ### Not there, or could not tell
@@ -99,7 +99,7 @@ Each place in the image:
 | Place | Not there | Could not tell |
 |---|---|---|
 | `[maint]` of `BOOT.CFG` at start | `config result=missing`, the tool off | `config result=bad why=read rc`, the tool off. The status row at start says "BOOT.CFG does not read: error N. Restore users is off." A bad line says the same with its line. |
-| Restore users, the setting | OFF, `why=setting` | OFF, `why=config` with `rc` or `line`. The row shows the error. |
+| Restore users, the setting | OFF, `why=setting` | FAILED, `why=config` with `rc` or `line`. The row shows the error. Nothing changes. |
 | Restore users, the default file | ABSENT, `why=missing` | FAILED, `why=stat rc`. Nothing is written. |
 | Check card, the walk | Not used: every entry the folder lists must open | A `card_error` per failure. The tool fails. |
 | Check images, `/ROBCO` | FAILED, `dir=missing` | FAILED, `dir_rc` |
@@ -187,7 +187,7 @@ It is off unless `BOOT.CFG` has `restore_users = on` in `[maint]`. The reason is
 | Case | Result | What happens |
 |---|---|---|
 | The setting is not `on` | OFF, `why=setting` | The row says the setting disables it. Nothing is read or written. |
-| `BOOT.CFG` did not read or parse | OFF, `why=config` with `rc` or `line` | The row shows the error. Nothing is read or written. |
+| `BOOT.CFG` did not read or parse | FAILED, `why=config` with `rc` or `line` | The setting is not known. The row shows the error. Nothing is read or written. |
 | No default file, or a folder of that name | ABSENT, `why=missing` | It says so. Nothing changes. |
 | An empty default file | FAILED, `why=empty` | It says so. Nothing changes. |
 | A default file above 1 MiB | FAILED, `why=large` | Nothing changes |
