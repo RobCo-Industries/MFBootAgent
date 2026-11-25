@@ -2,7 +2,7 @@
 
 This manual is for a person with a Raspberry Pi, an SD card with the RobCo chain on it, and a serial cable or a screen.
 
-Nothing here is validated on real hardware yet. Every behaviour below was seen in QEMU only. The GPIO buttons are not tested at all, see [Buttons](#buttons).
+Nothing here is validated on real hardware yet. Every behaviour below was seen in QEMU only. The GPIO buttons are tested in QEMU only, see [Buttons](#buttons).
 
 ## What MFBootAgent is
 
@@ -62,7 +62,7 @@ Hold UP or DOWN and the bar moves again after half a second, then every 150 ms. 
 
 At start the stage samples the pins for 100 ms. If every button reads pressed, it takes that as no buttons wired and stops reading them. The keyboard on the serial line still works. A button held down at power-on does not stop the others, as long as one button reads released. A button still held when the check ends counts as one press once the menu shows. Hold BACK at power-on to open the maintenance screen. Hold SELECT to boot the default entry at once.
 
-The buttons are untested. QEMU cannot press them, so the tests cover only the key mapping and the start-up check. No board with buttons has run this code.
+The buttons are tested in QEMU only. The tests press them as clean level changes, with no bounce. No board with buttons has run this code.
 
 The diagnostics image reads the same six pins, plus a dial. See [DIAG.md](DIAG.md).
 

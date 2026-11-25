@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A maintenance screen, opened by `M`, BACK, the port's `maint` or `boot_flags` bit 1, with Verify entries, System, Configuration and Reboot. New markers `maint_open`, `maint_action`, `verify_entry`, `verify_done` and `maint_close`.
 - `boot_flags` bit 1 is set when the user opened the maintenance screen, and kept when it arrived set.
 - `docs/USER_MANUAL.md`.
+- QEMU tests that press GPIO buttons through RobCo-Core's `harness.pigpio`: the boot menu with UP, DOWN and SELECT, BACK and DOWN held at start, the all-lines-low guard, and two buttons in the `DIAG.SYS` input view.
 
 ### Changed
 

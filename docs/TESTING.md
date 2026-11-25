@@ -89,4 +89,24 @@ QEMU models no cache. The memory test proves that the flush runs over every byte
 
 ## GPIO buttons
 
-QEMU cannot set Pi GPIO input levels. Every line reads 0, so the active-low buttons look held and the library disables the back end. The host tests cover the key mapping. The target tests check the `input` marker, `buttons=disabled_stuck`, and that console and port keys work. A BACK the port injects stands in for the button. Button navigation is untested on hardware.
+QEMU models no GPIO pulls, so an undriven line reads 0 and an active-low button reads pressed. RobCo-Core's `harness.pigpio` sets input levels through qtest. `boot(..., qtest=True, gpio_high=pins)` drives lines high before the guest starts, and `PiGpio` presses and releases them. `alone()` in `tests/mfboot.py` and in `tests/diag.py` passes both through.
+
+`test_buttons.py` uses the pins of `src/maint.c` and `diag/main.c`: UP 5, DOWN 6, LEFT 17, RIGHT 22, SELECT 26, BACK 27.
+
+| Test | Proves |
+|---|---|
+| `test_menu_up_down_select` | The buttons alone move the bar down, up and down, and SELECT boots the entry under it. The `input` marker reads `buttons=active` and `live=serial,gpio,script`. |
+| `test_back_held_at_start_opens_maintenance` | BACK held from power-on, the other lines high: the guard passes, the held button comes as a press, and the screen opens with `why=button`. Nothing boots. |
+| `test_down_held_at_start_stops_the_countdown` | DOWN held from power-on moves the bar to entry 2 and stops a 3 s countdown. Nothing boots after it. |
+| `test_select_held_at_start_boots_the_default` | SELECT held from power-on boots the default entry by key, long before a 30 s countdown ends |
+| `test_all_lines_low_disables_the_buttons` | No line driven: the backend reads `disabled_stuck`. Lines released and DOWN pressed later give no event. Serial keys still move the bar and boot. |
+| `test_diag_input_view_shows_two_buttons` | In the `DIAG.SYS` input view, UP and SELECT held together give `gpio` press events and two PRESSED rows. Releasing both gives release events, no row stays pressed, and the view ends with `gpio=active`. |
+
+A press is held until the guest reports its effect, then released. So no check depends on host timing, and none needs the library's timing rule in `tests/target/test_input_gpio.py`. A host stall only makes a test slower. UP and DOWN repeat after 500 ms. The menus in these tests have two entries, so a repeat at an end changes nothing. With SELECT or BACK moved to another pin in `src/maint.c`, `test_menu_up_down_select` and `test_back_held_at_start_opens_maintenance` fail.
+
+What stays unverified until hardware:
+
+- A QEMU press is a clean level change. It has no bounce, so the 20 ms debounce only delays it here. The library's own tests play bounce and chatter on its example image, not on this one.
+- The backend samples on the tick. No edge interrupt is modelled or used, so an edge path cannot be checked.
+- Pulls are not modelled. The internal pull-up that holds a released line high on a board is not exercised: the test drives the line high instead.
+- Real switch wiring, contact resistance and a button that sticks after release.

@@ -64,7 +64,7 @@ Keys come from the PL011, as ANSI sequences, from the GPIO buttons and from the 
 
 ### GPIO buttons
 
-The buttons use the example pins of BOARD_SUPPORT.md in RobCo-Core: UP 5, DOWN 6, LEFT 17, RIGHT 22, SELECT 26, BACK 27. Each is active low with the internal pull-up, debounced over 20 ms. Held keys repeat after 500 ms, then every 150 ms. If every line reads pressed for the 100 ms guard, the library disables the back end and the stage goes on with the others. QEMU reads every line as 0, so in QEMU the back end is always `disabled_stuck`. Button navigation is untested on hardware.
+The buttons use the example pins of BOARD_SUPPORT.md in RobCo-Core: UP 5, DOWN 6, LEFT 17, RIGHT 22, SELECT 26, BACK 27. Each is active low with the internal pull-up, debounced over 20 ms. Held keys repeat after 500 ms, then every 150 ms. If every line reads pressed for the 100 ms guard, the library disables the back end and the stage goes on with the others. A button held through the guard, with the other lines released, comes as a press when the guard ends. The menu takes it like any key: a held BACK opens the maintenance screen, and any held key stops the countdown. QEMU reads an undriven line as 0, so with no driven line the back end is `disabled_stuck`. The target tests drive the lines through qtest, see [TESTING.md](TESTING.md#gpio-buttons). Button navigation is untested on hardware.
 
 ### Maintenance screen
 
