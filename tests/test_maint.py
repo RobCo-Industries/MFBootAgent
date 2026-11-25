@@ -11,7 +11,7 @@ import struct
 import time
 
 from mfboot import (DIAG, MAINT, OFF_ABI, OFF_CRC, OFF_SUBTYPE, OS_READY, READY, TIMEOUT, UOS,
-                    WAIT_CFG, after, alone, card, char, check_golden, dump, events, flip, key, one,
+                    WAIT_CFG, after, alone, batch, card, char, check_golden, dump, events, flip, key, one,
                     os_checks, os_files, patched, screenshot, state)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -141,7 +141,7 @@ def test_open_by_port_countdown_stays_stopped(board, mfboot_image, test_os, need
     cfg = WAIT_CFG.replace(b"default = UOS\n", b"default = UOS\ntimeout = 2\n")
     with alone(mfboot_image, board, card(tmp_path, os_files(test_os), cfg=cfg)) as vm:
         vm.wait_for(READY, timeout=TIMEOUT)
-        vm.send("maint\n", port=1)
+        assert [x.status for x in batch(vm, ["maint"])] == ["ok"]
         vm.wait_for(OPEN, timeout=TIMEOUT)
         assert one(vm, "maint_open")["why"] == "port"
         assert events(vm, "countdown")[0]["state"] == "start"
@@ -163,20 +163,15 @@ def test_open_by_port_countdown_stays_stopped(board, mfboot_image, test_os, need
         assert one(vm, "choose")["via"] == "key"
 
 
-def port_answers(vm):
-    """The port's status lines, in order."""
-    return [x for x in vm.lines(1) if x == "ok" or x.startswith("err")]
-
-
 def test_port_select_then_maint_boots(board, mfboot_image, test_os, need_mtools, tmp_path):
     """SELECT came first: it boots, and the maint request behind it is dropped."""
     with alone(mfboot_image, board, card(tmp_path, os_files(test_os))) as vm:
         vm.wait_for(READY, timeout=TIMEOUT)
-        vm.send("key select\nmaint\n", port=1)
+        replies = batch(vm, ["key select", "maint"])
+        assert [x.status for x in replies] == ["ok", "ok"], replies
         check_os_flags(vm, BOOT_COLD)
         assert not events(vm, "maint_open"), vm.serial
         assert one(vm, "maint_drop")["why"] == "boot"
-        assert port_answers(vm)[:2] == ["ok", "ok"], vm.lines(1)
 
 
 def test_port_select_then_maint_failed_load(board, mfboot_image, test_os, need_mtools,
@@ -186,7 +181,8 @@ def test_port_select_then_maint_failed_load(board, mfboot_image, test_os, need_m
     del files[UOS]
     with alone(mfboot_image, board, card(tmp_path, files)) as vm:
         vm.wait_for(READY, timeout=TIMEOUT)
-        vm.send("key select\nmaint\n", port=1)
+        replies = batch(vm, ["key select", "maint"])
+        assert [x.status for x in replies] == ["ok", "ok"], replies
         vm.wait_for("ev=error code=nofile", timeout=TIMEOUT)
         st = state(vm)
         assert (st["phase"], st["maint"]) == ("menu", "0"), st
@@ -194,7 +190,6 @@ def test_port_select_then_maint_failed_load(board, mfboot_image, test_os, need_m
         assert state(vm)["sel"] == "2"
         assert not events(vm, "maint_open"), vm.serial
         assert one(vm, "maint_drop")["why"] == "boot"
-        assert port_answers(vm)[:2] == ["ok", "ok"], vm.lines(1)
         # A new request opens it now.
         assert vm.script("maint", timeout=TIMEOUT).status == "ok"
         vm.wait_for(OPEN, timeout=TIMEOUT)
@@ -206,14 +201,14 @@ def test_port_maint_then_select_acts_inside(board, mfboot_image, test_os, need_m
     """maint came first: the screen opens and SELECT runs its first action."""
     with alone(mfboot_image, board, card(tmp_path, os_files(test_os))) as vm:
         vm.wait_for(READY, timeout=TIMEOUT)
-        vm.send("maint\nkey select\n", port=1)
+        replies = batch(vm, ["maint", "key select"])
+        assert [x.status for x in replies] == ["ok", "ok"], replies
         vm.wait_for(VERIFY_DONE, timeout=TIMEOUT)
         st = state(vm)
         assert (st["phase"], st["maint"]) == ("menu", "1"), st
         assert one(vm, "maint_open")["why"] == "port"
         assert one(vm, "maint_action")["name"] == "verify"
         assert not events(vm, "choose") and not events(vm, "maint_drop"), vm.serial
-        assert port_answers(vm)[:2] == ["ok", "ok"], vm.lines(1)
         char(vm, "q")
         vm.wait_for(CLOSE, timeout=TIMEOUT)
         key(vm, "select")
@@ -227,12 +222,11 @@ def test_state_answers_between_queued_keys(board, mfboot_image, test_os, need_mt
     with alone(mfboot_image, board, card(tmp_path, os_files(test_os))) as vm:
         vm.wait_for(READY, timeout=TIMEOUT)
         open_by_key(vm)
-        replies = len([x for x in vm.lines(1) if x.startswith("| phase=")])
         # One write: the stage reads all three lines before it takes a key.
-        vm.send("key down\nkey down\nstate\n", port=1)
-        vm.wait_for(re.compile(r"(\| phase=[^\n]*\nok\n[\s\S]*){%d}" % (replies + 1)),
-                    timeout=TIMEOUT, port=1)
-        early = [x for x in vm.lines(1) if x.startswith("| phase=")][-1]
+        replies = batch(vm, ["key down", "key down", "state"])
+        assert [x.status for x in replies] == ["ok", "ok", "ok"], replies
+        assert len(replies[2].lines) == 1, replies
+        early = replies[2].lines[0]
         assert re.search(r" pending=[1-9]", early), early
         assert state(vm)["pending"] == "0"
         assert screen_rows(vm)[2:5] == ["  Verify entries", "  System", "> Configuration"]
