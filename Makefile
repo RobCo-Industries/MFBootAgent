@@ -1,17 +1,20 @@
 # MFBootAgent, the second stage of the terminal chain. Built with the
 # RobCo-Core library in external/robco-core.
 #
-#   make                      build/mfboot.img and the test operating images
+#   make                      build/mfboot.img, build/diag.sys and the test images
 #   make test                 host tests, then target tests on every board
 #   make test BOARD=raspi0    the same, target tests on one board
 #   make test-host            host unit tests and the pin check
 #   make test-target          QEMU target tests (BOARD=all by default).
+#                             TIMING_SKIPS_MAX=<n> allows more host timing skips
 #                             RETROS_IMG=<RETROS.IMG> adds the whole-chain tests.
 #   make sdimage              build/sd.img: MFBOOT.SYS, BOOT.CFG and the test
 #                             operating images. FIRST=<RETROS.IMG> adds a first
 #                             stage and its config.txt
 #   make run BOARD=raspi2b    boot build/sd.img in QEMU on this terminal
 #                             (WINDOW=1 also opens the display window)
+#   make run-diag             the diagnostics image alone, with the card
+#                             (DEVICES=1 adds the I2C chips)
 #   make check-pins           CI workflow pins and doc links match the submodule
 #   make clean
 
@@ -31,23 +34,32 @@ PURE_SRCS  := \
               src/maintscr.c \
               src/menu.c \
               src/menulines.c \
+              src/portreq.c \
 
 SRCS       := $(sort $(wildcard src/*.c))
+
+# The diagnostics image's pure files, in diag/: the host tests link them too.
+DIAG_PURE_SRCS := \
+              diag/dg_fmt.c \
+              diag/dg_mem.c \
+              diag/dg_menu.c \
+              diag/dg_sd.c \
+
 
 # `make sdimage`. Set before the include: robco.mk reads them. The card
 # holds MFBOOT.SYS, the default BOOT.CFG and the test operating images.
 OS_BUILD       = $(abspath $(BUILD))/os
 SDIMAGE_MIB   ?= 64
-SDIMAGE_DEPS  := $(BUILD)/$(IMAGE).img testos
+SDIMAGE_DEPS  := $(BUILD)/$(IMAGE).img testos diag
 SDIMAGE_FILES := boot/BOOT.CFG:ROBCO/BOOT.CFG $(BUILD)/$(IMAGE).img:ROBCO/MFBOOT.SYS \
                  $(OS_BUILD)/uos/testos.img:ROBCO/UOS.SYS \
                  $(OS_BUILD)/maint/testos.img:ROBCO/MAINT.SYS \
-                 $(OS_BUILD)/diag/testos.img:ROBCO/DIAG.SYS
+                 $(BUILD)/diag.sys:ROBCO/DIAG.SYS
 
 # Host unit tests: tests/host/test_<name>.c with the pure files.
 HOST_TEST_DIR := tests/host
-HOST_SRCS     := $(PURE_SRCS)
-HOST_INCLUDES := src
+HOST_SRCS     := $(PURE_SRCS) $(DIAG_PURE_SRCS)
+HOST_INCLUDES := src diag
 
 # The library's commit for the maintenance screen, from the CI workflow
 # pin, which check-pins holds equal to the submodule. No git needed.
@@ -83,6 +95,31 @@ testos:
 $(OS_BUILD)/%/testos.img: testos
 	@test -f $@
 
+# ---- The diagnostics image ------------------------------------------------
+
+# build/diag.sys, DIAG.SYS on the card, from diag/. The test build
+# build/diagtest/diag.img adds the maintenance port's fault command and
+# caps the memory test at DIAG_TEST_MEM_BYTES. Not shipped.
+DIAG_BUILD          = $(abspath $(BUILD))/diag
+DIAG_TEST_BUILD     = $(abspath $(BUILD))/diagtest
+DIAG_TEST_MEM_BYTES ?= 0x01000000
+.PHONY: diag run-diag
+all: diag
+
+diag:
+	$(MAKE) --no-print-directory -C diag BUILD=$(DIAG_BUILD)
+	cmp -s $(DIAG_BUILD)/diag.img $(BUILD)/diag.sys || cp $(DIAG_BUILD)/diag.img $(BUILD)/diag.sys
+	$(MAKE) --no-print-directory -C diag BUILD=$(DIAG_TEST_BUILD) \
+	    EXTRA_CFLAGS="-DDG_TEST=1 -DDG_MEM_CAP_BYTES=$(DIAG_TEST_MEM_BYTES)u"
+
+$(BUILD)/diag.sys: diag
+	@test -f $@
+
+# Alone, a two-word image at 0x8000 jumps to the diagnostics image in the OS slot.
+$(BUILD)/tramp_diag.img:
+	@mkdir -p $(dir $@)
+	$(PYTHON) -c "import struct, sys; open(sys.argv[1], 'wb').write(struct.pack('<II', 0xE51FF004, 0x00400000))" $@
+
 # ---- Python environment for the target tests --------------------------
 
 VENV := .venv
@@ -104,8 +141,9 @@ test: test-host
 	$(MAKE) test-target
 
 test-target: all venv
-	$(VENV)/bin/pytest tests -v --board $(BOARD) --build-dir $(BUILD) \
-	    $(if $(RETROS_IMG),--retros-img $(abspath $(RETROS_IMG)))
+	$(VENV)/bin/pytest tests -v -rs --board $(BOARD) --build-dir $(BUILD) \
+	    $(if $(RETROS_IMG),--retros-img $(abspath $(RETROS_IMG))) \
+	    $(if $(TIMING_SKIPS_MAX),--timing-skips-max=$(TIMING_SKIPS_MAX))
 
 # DOC_ROOT: the tree whose Markdown links check-doc-links reads.
 DOC_ROOT ?= .
@@ -139,4 +177,16 @@ RUN_ALONE := $(BUILD)/tramp.img --qemu-arg=-device \
 RUN_BOARD := $(if $(filter all,$(BOARD)),raspi2b,$(BOARD))
 run: sdimage $(BUILD)/tramp.img
 	PYTHONPATH=$(ROBCO_CORE)/tests $(PYTHON) -m harness.run $(if $(FIRST),$(FIRST),$(RUN_ALONE)) \
+	    --board $(RUN_BOARD) --sd $(BUILD)/sd.img --serial2 pty $(if $(filter 1,$(WINDOW)),--window)
+
+# The diagnostics image alone, with the card. DEVICES=1 adds the clock chip
+# and both expanders on I2C1.
+RUN_DEVICES := --qemu-arg=-device --qemu-arg=ds1338$(comma)bus=i2c-bus.1$(comma)address=0x68 \
+               --qemu-arg=-device --qemu-arg=pca9554$(comma)bus=i2c-bus.1$(comma)address=0x20 \
+               --qemu-arg=-device --qemu-arg=pca9554$(comma)bus=i2c-bus.1$(comma)address=0x21
+run-diag: sdimage $(BUILD)/tramp_diag.img
+	PYTHONPATH=$(ROBCO_CORE)/tests $(PYTHON) -m harness.run $(BUILD)/tramp_diag.img \
+	    --qemu-arg=-device \
+	    --qemu-arg=loader$(comma)file=$(BUILD)/diag.sys$(comma)addr=0x00400000$(comma)force-raw=on \
+	    $(if $(filter 1,$(DEVICES)),$(RUN_DEVICES)) \
 	    --board $(RUN_BOARD) --sd $(BUILD)/sd.img --serial2 pty $(if $(filter 1,$(WINDOW)),--window)

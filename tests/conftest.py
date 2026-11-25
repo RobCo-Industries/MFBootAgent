@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(CORE, "tests"))
 # test_console: the console font and colour schemes, to render expected text.
 sys.path.insert(0, os.path.join(CORE, "tests", "target"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-pytest_plugins = ["harness.plugin"]
+pytest_plugins = ["harness.plugin", "timing_skips"]
 
 import pytest  # noqa: E402
 

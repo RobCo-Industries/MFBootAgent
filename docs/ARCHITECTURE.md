@@ -38,4 +38,8 @@ After a trusted handoff `main.c` adopts the live framebuffer and console with `f
 | `0x00200000`-`0x003FFFFF` | This image, its BSS and its stacks: 2 MiB |
 | `0x00400000`-`0x00FFFFFF` | OS slot, written by the loader. The verify action also uses it as its work buffer. |
 
-The image is 82616 bytes. The maintenance screen and the buttons added about 10 KiB. These numbers come from one build with the toolchain on the development machine and change with the toolchain. The link fails if the image outgrows the range. The largest buffers are the console cells of RobCo-Core, 8 KiB, the parser state with the names of up to 410 entry headers, 7 KiB, and the `BOOT.CFG` text, 4 KiB. The code of this stage allocates nothing on a heap.
+The image is 83964 bytes. With BSS and stacks it takes 143632 bytes (`mem_size` `0x23110`), about 7% of its 2 MiB range. The maintenance screen and the buttons added about 10 KiB. These numbers come from one build with the toolchain on the development machine and change with the toolchain. The link fails if the image outgrows the range. The largest buffers are the console cells of RobCo-Core, 8 KiB, the parser state with the names of up to 410 entry headers, 7 KiB, and the `BOOT.CFG` text, 4 KiB. The code of this stage allocates nothing on a heap.
+
+## The diagnostics image
+
+`diag/` builds `DIAG.SYS` with its own `Makefile` and `robco_config.h`. The pure files hold the decisions and have host tests: `dg_mem.c` the RAM ranges and patterns, `dg_sd.c` the read plan, the file rule and the write guard, `dg_menu.c` the menu and the live view exit rule, `dg_fmt.c` the lines, markers, verdicts, the run-all result and the expander attach rule. `main.c` holds the entry, the screen, the menu loop and the port. Each `t_*.c` file is a thin layer over the drivers for one or more tests. [DIAG.md](DIAG.md) describes the image.

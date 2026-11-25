@@ -31,6 +31,7 @@
 #include "menu.h"
 #include "menulines.h"
 #include "mfb.h"
+#include "portreq.h"
 
 #define SCREEN_W 640
 #define SCREEN_H 480
@@ -585,9 +586,9 @@ static int menu_loop(void)
         redraw();
         if (act == MFB_ACT_NONE &&
             input_wait(&ev, mfb_menu_wait_ms(&menu, timer_now_ms())) != 0) {
-            int port = mfb_port_maint(&ev, mfb.maint_req);
+            int port = mfb_port_req(&ev, mfb.maint_req);
 
-            if (port == MFB_PORT_OPEN) {
+            if (port == MFB_PORT_LIVE) {
                 /* The maint command on the port: it stops the countdown as a key does. */
                 mfb.maint_req = 0;
                 menu.why = MFB_WHY_PORT;
