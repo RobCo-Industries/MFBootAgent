@@ -257,8 +257,15 @@ void dg_test_sd(dg_run_t *r)
     dg_sd_scan_t sc;
     uint32_t errors = 0;
     int scan = DG_SD_SCAN_OK;
-    int rc = sd_init();
+    int rc;
+#ifdef DG_TEST
+    /* Test builds: sdwrite arms one probe; this run consumes it. */
+    int probe = dg.sd_probe_write;
 
+    dg.sd_probe_write = 0;
+#endif
+
+    rc = sd_init();
     guard.writes = 0;
     if (rc != 0) {
         r->result = rc == SD_ERR_NOCARD ? DG_ABSENT : DG_FAIL;
@@ -270,7 +277,7 @@ void dg_test_sd(dg_run_t *r)
     dg_sd_guard_init(&guard, card);
 #ifdef DG_TEST
     /* Test builds: prove the counter is reachable through blk_write(). */
-    if (dg.sd_probe_write) {
+    if (probe) {
         dg_keys(r, "probe_rc=%d", blk_write(&guard.dev, 0, 1, buf));
     }
 #endif

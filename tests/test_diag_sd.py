@@ -51,6 +51,10 @@ def test_write_attempt_is_counted_and_refused(board, diag_test_image, good_card)
         m = run(vm, "sd")
         assert m["result"] == "fail", vm.serial
         assert (m["probe_rc"], m["writes"]) == ("-5", "1"), m
+        # sdwrite is one-shot: the next run sends no write and passes.
+        m = run(vm, "sd")
+        assert (m["result"], m["writes"]) == ("ok", "0"), m
+        assert "probe_rc" not in m, m
     assert digest(good_card) == before
 
 

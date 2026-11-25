@@ -205,4 +205,4 @@ The port is the mini UART: in QEMU, the second serial port. On hardware it reach
 
 `diag` only records the request. The main loop runs the test, so the port keeps answering.
 
-The test build, `build/diagtest/diag.img`, adds `fault <addr>`. It flips one bit at that address after the memory test writes it. It also stops the memory test at 16 MiB. It also adds `sdwrite`: the next SD test sends one write through its guard and reports the result as `probe_rc`. The guard counts and refuses it, so the test fails with `writes=1` and the card does not change. It is not shipped.
+The test build, `build/diagtest/diag.img`, adds `fault <addr>`. It flips one bit at that address after the memory test writes it. It also stops the memory test at 16 MiB. It also adds `sdwrite`: the next SD run sends one write through its guard and reports the result as `probe_rc`. The guard counts and refuses it, so that run fails with `writes=1` and the card does not change. That run clears the request, so later runs send no write. It is not shipped.
