@@ -8,7 +8,6 @@
 
 #include <stdint.h>
 
-#include <robco/alloc.h>
 #include <robco/blk.h>
 #include <robco/fs.h>
 #include <robco/klibc.h>
@@ -19,11 +18,9 @@
 
 #include "dg.h"
 #include "dg_sd.h"
+#include "dg_sdimg.h"
 
 #define DIR_PATH "/ROBCO"
-/* Largest image file the check reads: the OS slot is 12 MiB. */
-#define FILE_MAX (16u << 20)
-
 static blk_dev_t *card;
 static dg_sd_guard_t guard;
 static uint64_t read_total;     /* blocks the last read_blocks() read */
@@ -105,7 +102,7 @@ typedef struct {
     fs_dir_t *d;
     fs_stat_t st;
     unsigned row;       /* next work row of the file list */
-    char name[sizeof(((rimg_header_t *)0)->name) + 1]; /* header name of the last good image */
+    char name[DG_SDIMG_NAME + 1]; /* header name of the last good image */
     unsigned subtype;   /* and its subtype */
 } scan_ctx_t;
 
@@ -136,51 +133,14 @@ static int op_closedir(void *ctx)
     return fs_closedir(c->d);
 }
 
-/*
- * One image file: the first bytes by dg_sd_head(), then the whole file in
- * RAM above the OS slot through rimg_validate(), the loader's own steps.
- */
+/* One image file: dg_sd_check_image(), shared with the maintenance image. */
 static int op_check(void *ctx, const dg_sd_entry_t *e)
 {
-    static fs_file_t f;
     char path[FS_PATH_MAX + 1];
-    uint8_t head[RIMG_META_OFFSET];
     scan_ctx_t *c = ctx;
-    const rimg_header_t *h = 0;
-    void *base = 0;
-    size_t room = robco_heap_high(&base);
-    int n = 0;
-    int rc;
 
     k_snprintf(path, sizeof(path), DIR_PATH "/%s", e->name);
-    if (e->size == 0 || e->size < RIMG_META_OFFSET) {
-        return dg_sd_head(e->size, 0, 0);
-    }
-    if (fs_open(&f, path, FS_READ) != 0) {
-        return DG_SDF_OPEN;
-    }
-    n = fs_read(&f, head, sizeof(head));
-    rc = dg_sd_head(e->size, head, n);
-    if (rc == DG_SDF_OK) {
-        if (room > FILE_MAX) {
-            room = FILE_MAX;
-        }
-        if (e->size > room) {
-            rc = RIMG_E_SIZE;
-        } else if (fs_seek(&f, 0, FS_SEEK_SET) != 0 ||
-                   fs_read(&f, base, e->size) != (int)e->size) {
-            rc = RIMG_E_IO;
-        } else {
-            rc = rimg_validate(base, e->size, 0, &h);
-        }
-        if (rc == RIMG_OK) {
-            k_memcpy(c->name, h->name, sizeof(h->name));
-            c->name[sizeof(h->name)] = '\0';
-            c->subtype = (unsigned)h->subtype;
-        }
-    }
-    (void)fs_close(&f);
-    return rc;
+    return dg_sd_check_image(path, e->size, c->name, &c->subtype);
 }
 
 static void op_report(void *ctx, const dg_sd_entry_t *e, int out)

@@ -152,15 +152,20 @@ int dg_sd_scan(const dg_sd_ops_t *ops, int noent_rc, dg_sd_scan_t *s);
  * read-only flag: blk_write() reaches its write function, which counts
  * the attempt in `writes` and returns BLK_ERR_RO. It never calls the
  * card's write function. Reads go to the card.
+ *
+ * With `pass` set, writes and syncs go to the card and nothing counts.
+ * The maintenance image sets it only while a tool that writes runs. The
+ * diagnostics image never sets it.
  */
 typedef struct {
     blk_dev_t dev;      /* mount this one */
-    blk_dev_t *card;    /* the real device, never written */
+    blk_dev_t *card;    /* the real device, written only with pass set */
     uint32_t writes;    /* write attempts refused */
+    int pass;           /* 1: writes reach the card */
     int fail_multi;     /* test hook: reads of more than one block fail with BLK_ERR_IO */
 } dg_sd_guard_t;
 
-/* Builds the guard over card with writes and fail_multi at 0. */
+/* Builds the guard over card with writes, pass and fail_multi at 0. */
 void dg_sd_guard_init(dg_sd_guard_t *g, blk_dev_t *card);
 
 /*

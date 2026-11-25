@@ -1,7 +1,8 @@
 # MFBootAgent, the second stage of the terminal chain. Built with the
 # RobCo-Core library in external/robco-core.
 #
-#   make                      build/mfboot.img, build/diag.sys and the test images
+#   make                      build/mfboot.img, build/diag.sys, build/maint.sys and the
+#                             test images
 #   make test                 host tests, then target tests on every board
 #   make test BOARD=raspi0    the same, target tests on one board
 #   make test-host            host unit tests and the pin check
@@ -14,6 +15,8 @@
 #   make run BOARD=raspi2b    boot build/sd.img in QEMU on this terminal
 #                             (WINDOW=1 also opens the display window)
 #   make run-diag             the diagnostics image alone, with the card
+#                             (DEVICES=1 adds the I2C chips)
+#   make run-maint            the maintenance image alone, with the card
 #                             (DEVICES=1 adds the I2C chips)
 #   make check-pins           CI workflow pins and doc links match the submodule
 #   make clean
@@ -45,21 +48,26 @@ DIAG_PURE_SRCS := \
               diag/dg_menu.c \
               diag/dg_sd.c \
 
+# The maintenance image's pure files, in maint/: the host tests link them too.
+MAINT_PURE_SRCS := \
+              maint/mt_cfg.c \
+              maint/mt_ui.c \
+
 
 # `make sdimage`. Set before the include: robco.mk reads them. The card
 # holds MFBOOT.SYS, the default BOOT.CFG and the test operating images.
 OS_BUILD       = $(abspath $(BUILD))/os
 SDIMAGE_MIB   ?= 64
-SDIMAGE_DEPS  := $(BUILD)/$(IMAGE).img testos diag
+SDIMAGE_DEPS  := $(BUILD)/$(IMAGE).img testos diag maint
 SDIMAGE_FILES := boot/BOOT.CFG:ROBCO/BOOT.CFG $(BUILD)/$(IMAGE).img:ROBCO/MFBOOT.SYS \
                  $(OS_BUILD)/uos/testos.img:ROBCO/UOS.SYS \
-                 $(OS_BUILD)/maint/testos.img:ROBCO/MAINT.SYS \
+                 $(BUILD)/maint.sys:ROBCO/MAINT.SYS \
                  $(BUILD)/diag.sys:ROBCO/DIAG.SYS
 
 # Host unit tests: tests/host/test_<name>.c with the pure files.
 HOST_TEST_DIR := tests/host
-HOST_SRCS     := $(PURE_SRCS) $(DIAG_PURE_SRCS)
-HOST_INCLUDES := src diag
+HOST_SRCS     := $(PURE_SRCS) $(DIAG_PURE_SRCS) $(MAINT_PURE_SRCS)
+HOST_INCLUDES := src diag maint
 
 # The library's commit for the maintenance screen, from the CI workflow
 # pin, which check-pins holds equal to the submodule. No git needed.
@@ -119,6 +127,24 @@ $(BUILD)/diag.sys: diag
 $(BUILD)/tramp_diag.img:
 	@mkdir -p $(dir $@)
 	$(PYTHON) -c "import struct, sys; open(sys.argv[1], 'wb').write(struct.pack('<II', 0xE51FF004, 0x00400000))" $@
+
+# ---- The maintenance image ----------------------------------------------
+
+# build/maint.sys, MAINT.SYS on the card, from maint/. The test build
+# build/mainttest/maint.img adds the maintenance port's write probe. Not
+# shipped.
+MAINT_BUILD      = $(abspath $(BUILD))/maint
+MAINT_TEST_BUILD = $(abspath $(BUILD))/mainttest
+.PHONY: maint run-maint
+all: maint
+
+maint:
+	$(MAKE) --no-print-directory -C maint BUILD=$(MAINT_BUILD)
+	cmp -s $(MAINT_BUILD)/maint.img $(BUILD)/maint.sys || cp $(MAINT_BUILD)/maint.img $(BUILD)/maint.sys
+	$(MAKE) --no-print-directory -C maint BUILD=$(MAINT_TEST_BUILD) EXTRA_CFLAGS="-DMT_TEST=1"
+
+$(BUILD)/maint.sys: maint
+	@test -f $@
 
 # ---- Python environment for the target tests --------------------------
 
@@ -188,5 +214,14 @@ run-diag: sdimage $(BUILD)/tramp_diag.img
 	PYTHONPATH=$(ROBCO_CORE)/tests $(PYTHON) -m harness.run $(BUILD)/tramp_diag.img \
 	    --qemu-arg=-device \
 	    --qemu-arg=loader$(comma)file=$(BUILD)/diag.sys$(comma)addr=0x00400000$(comma)force-raw=on \
+	    $(if $(filter 1,$(DEVICES)),$(RUN_DEVICES)) \
+	    --board $(RUN_BOARD) --sd $(BUILD)/sd.img --serial2 pty $(if $(filter 1,$(WINDOW)),--window)
+
+# The maintenance image alone, with the card. The OS slot trampoline is the
+# diagnostics image's: both link at 0x00400000.
+run-maint: sdimage $(BUILD)/tramp_diag.img
+	PYTHONPATH=$(ROBCO_CORE)/tests $(PYTHON) -m harness.run $(BUILD)/tramp_diag.img \
+	    --qemu-arg=-device \
+	    --qemu-arg=loader$(comma)file=$(BUILD)/maint.sys$(comma)addr=0x00400000$(comma)force-raw=on \
 	    $(if $(filter 1,$(DEVICES)),$(RUN_DEVICES)) \
 	    --board $(RUN_BOARD) --sd $(BUILD)/sd.img --serial2 pty $(if $(filter 1,$(WINDOW)),--window)

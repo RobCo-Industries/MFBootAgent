@@ -222,11 +222,18 @@ static int guard_write(blk_dev_t *dev, uint64_t lba, uint32_t count, const void 
 {
     dg_sd_guard_t *g = (dg_sd_guard_t *)dev->priv;
 
-    (void)lba;
-    (void)count;
-    (void)in;
+    if (g->pass) {
+        return blk_write(g->card, lba, count, in);
+    }
     g->writes++;
     return BLK_ERR_RO;
+}
+
+static int guard_sync(blk_dev_t *dev)
+{
+    dg_sd_guard_t *g = (dg_sd_guard_t *)dev->priv;
+
+    return g->pass ? blk_sync(g->card) : 0;
 }
 
 void dg_sd_guard_init(dg_sd_guard_t *g, blk_dev_t *card)
@@ -237,7 +244,7 @@ void dg_sd_guard_init(dg_sd_guard_t *g, blk_dev_t *card)
     g->dev.flags &= ~BLK_FLAG_READONLY;
     g->dev.read = guard_read;
     g->dev.write = guard_write;
-    g->dev.sync = 0;
+    g->dev.sync = guard_sync;
     g->dev.priv = g;
 }
 
