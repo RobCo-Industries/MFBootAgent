@@ -103,6 +103,39 @@ TEST(every_menu_row_fits_the_screen)
     CHECK(DG_ROW_ITEM0 + DG_ITEMS < DG_ROW_HELP);
 }
 
+static unsigned attach_calls;
+static int attach_result;
+
+static int fake_attach(unsigned chip, uint8_t addr)
+{
+    (void)chip;
+    (void)addr;
+    attach_calls++;
+    return attach_result;
+}
+
+TEST(expander_attach_raw_ok_or_error)
+{
+    int rc = 99;
+
+    /* Polarity not 0: the attach would write it, so it never runs. Not an error. */
+    attach_calls = 0;
+    attach_result = -3;
+    CHECK_EQ(dg_x_attach(0x01, fake_attach, 0, 0x20, &rc), DG_X_RAW);
+    CHECK_EQ(attach_calls, 0);
+    CHECK_EQ(rc, 0);
+    /* Polarity 0, attach succeeds. */
+    attach_result = 0;
+    CHECK_EQ(dg_x_attach(0x00, fake_attach, 0, 0x20, &rc), DG_X_ATTACHED);
+    CHECK_EQ(attach_calls, 1);
+    CHECK_EQ(rc, 0);
+    /* Polarity 0, a read inside the attach fails: an error with its result. */
+    attach_result = -3;
+    CHECK_EQ(dg_x_attach(0x00, fake_attach, 1, 0x21, &rc), DG_X_ATTACH_ERR);
+    CHECK_EQ(attach_calls, 2);
+    CHECK_EQ(rc, -3);
+}
+
 TEST(expander_lines)
 {
     dg_line_xrow(buf, sizeof(buf), 0, 1, 0xFE, 1, 0x01);

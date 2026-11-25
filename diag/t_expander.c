@@ -31,6 +31,7 @@ static const uint8_t addrs[CHIPS] = { 0x20, 0x21 };
 typedef struct {
     int present;
     int attached;
+    int attach;         /* DG_X_RAW, DG_X_ATTACHED or DG_X_ATTACH_ERR */
     int rc;             /* the first failed read's result, else 0 */
     int errors;         /* reads that failed after the chip answered, or not with a NACK */
     uint8_t reg[4];     /* input, output, polarity, configuration */
@@ -63,8 +64,13 @@ static void probe(unsigned c)
         return;
     }
     x->present = 1;
-    if (x->reg[GPIOX_REG_POLARITY] == 0) {
-        x->attached = gpiox_attach(c, addrs[c]) == 0;
+    /* A failed attach is a bus error. Polarity not 0 is the raw-read path, not an error. */
+    x->attach = dg_x_attach(x->reg[GPIOX_REG_POLARITY], gpiox_attach, c, addrs[c], &rc);
+    x->attached = x->attach == DG_X_ATTACHED;
+    if (x->attach == DG_X_ATTACH_ERR) {
+        x->rc = rc;
+        x->errors++;
+        dg_mark("expander_err chip=%u at=attach rc=%d", c, rc);
     }
 }
 
@@ -165,6 +171,9 @@ void dg_test_expander(dg_run_t *r)
                     x->reg[3], x->attached);
             dg_keys(r, "x%u=0x%02x in%u=0x%02x out%u=0x%02x pol%u=0x%02x cfg%u=0x%02x", c,
                     addrs[c], c, x->reg[0], c, x->reg[1], c, x->reg[2], c, x->reg[3]);
+            if (x->attach == DG_X_ATTACH_ERR) {
+                dg_keys(r, "attach%u=error rc%u=%d", c, c, x->rc);
+            }
         } else {
             dg_mark("expander chip=%u addr=0x%02x present=0 rc=%d", c, addrs[c], x->rc);
             if (x->errors == 0) {

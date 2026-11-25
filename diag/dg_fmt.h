@@ -153,6 +153,19 @@ void dg_line_xrow(char *buf, size_t size, unsigned pin, int have0, uint8_t bits0
 void dg_line_xregs(char *buf, size_t size, unsigned chip, unsigned addr, int present,
                    uint8_t in, uint8_t out, uint8_t pol, uint8_t cfg);
 
+/*
+ * The expander test's attach step for a chip whose four registers read
+ * back. gpiox_attach() writes the polarity register when it is not 0, so
+ * a chip with polarity not 0 is never attached: DG_X_RAW, read raw, not
+ * an error. Else attach(chip, addr) runs: DG_X_ATTACHED on 0, else
+ * DG_X_ATTACH_ERR with its result in *rc, a bus error the test counts.
+ */
+#define DG_X_RAW            0
+#define DG_X_ATTACHED       1
+#define DG_X_ATTACH_ERR     2
+int dg_x_attach(uint8_t pol, int (*attach)(unsigned, uint8_t), unsigned chip, uint8_t addr,
+                int *rc);
+
 /* One button of the GPIO backend: its key name and its state. */
 void dg_line_button(char *buf, size_t size, const char *key, int pressed);
 /* One input event: its source, type, code and value. */

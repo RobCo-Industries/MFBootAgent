@@ -319,3 +319,14 @@ int dg_rng_judge(const uint32_t *w, uint32_t n, uint32_t *repeats, uint32_t *bit
     }
     return DG_OK;
 }
+
+int dg_x_attach(uint8_t pol, int (*attach)(unsigned, uint8_t), unsigned chip, uint8_t addr,
+                int *rc)
+{
+    *rc = 0;
+    if (pol != 0) {
+        return DG_X_RAW;
+    }
+    *rc = attach(chip, addr);
+    return *rc == 0 ? DG_X_ATTACHED : DG_X_ATTACH_ERR;
+}
