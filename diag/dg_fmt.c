@@ -259,6 +259,23 @@ unsigned dg_percent(uint64_t done, uint64_t total)
     return (unsigned)(done * 100u / total);
 }
 
+const char *dg_u64(char out[DG_U64_SIZE], uint64_t v)
+{
+    char tmp[DG_U64_SIZE];
+    size_t n = 0;
+    size_t i;
+
+    do {
+        tmp[n++] = (char)('0' + v % 10u);
+        v /= 10u;
+    } while (v != 0);
+    for (i = 0; i < n; i++) {
+        out[i] = tmp[n - 1 - i];
+    }
+    out[n] = '\0';
+    return out;
+}
+
 int dg_timer_judge(uint64_t timer_us, uint32_t ticks, uint32_t asked_hz, uint32_t hz,
                    uint32_t missed, int32_t *ppm, uint32_t *limit_ppm)
 {

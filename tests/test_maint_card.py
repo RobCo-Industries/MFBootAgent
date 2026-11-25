@@ -35,7 +35,9 @@ def test_good_card(board, maint_image, good_files, need_mtools, tmp_path):
         assert st["phase"] == "menu", st
         _, rows = dump(vm)
         assert rows[4].startswith("> 1  CHECK CARD    Read every file of the card    OK"), rows
-        assert rows[15].startswith("4 folders, 6 files, 0 errors. Free "), rows
+        assert rows[15] == "4 folders, 6 files, 0 errors.", rows
+        kib = (int(m["free_bytes"]) >> 10, int(m["total_bytes"]) >> 10)
+        assert rows[16] == "Free %d KiB of %d KiB." % kib, rows
     assert digest(sd) == before
 
 

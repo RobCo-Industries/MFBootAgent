@@ -5,6 +5,7 @@
 #include <robco/klibc.h>
 
 #include "mt_walk.h"
+#include "../diag/dg_fmt.h"
 
 static void fail(const mt_walk_ops_t *ops, mt_walk_t *w, const char *path, int what, int rc)
 {
@@ -126,4 +127,41 @@ const char *mt_walk_what(int what)
 int mt_walk_clean(const mt_walk_t *w)
 {
     return w != NULL && w->errors == 0;
+}
+
+void mt_card_keys(char *out, size_t size, const mt_walk_t *w, const mt_space_t *sp)
+{
+    char a[DG_U64_SIZE];
+    char b[DG_U64_SIZE];
+    int n;
+
+    n = k_snprintf(out, size, "dirs=%u files=%u bytes=%s errors=%u", w->dirs, w->files,
+                   dg_u64(a, w->bytes), w->errors);
+    if (n < 0 || (size_t)n >= size) {
+        return;
+    }
+    if (sp->rc == 0) {
+        k_snprintf(out + n, size - (size_t)n, " free_bytes=%s total_bytes=%s fat=%u",
+                   dg_u64(a, sp->free_bytes), dg_u64(b, sp->total_bytes), sp->fat);
+    } else {
+        k_snprintf(out + n, size - (size_t)n, " statvfs_rc=%d", sp->rc);
+    }
+}
+
+void mt_card_counts(char *out, size_t size, const mt_walk_t *w)
+{
+    k_snprintf(out, size, "%u folders, %u files, %u errors.", w->dirs, w->files, w->errors);
+}
+
+void mt_card_free(char *out, size_t size, const mt_space_t *sp)
+{
+    char a[DG_U64_SIZE];
+    char b[DG_U64_SIZE];
+
+    if (sp->rc != 0) {
+        k_snprintf(out, size, "No free space count: error %d.", sp->rc);
+        return;
+    }
+    k_snprintf(out, size, "Free %s KiB of %s KiB.", dg_u64(a, sp->free_bytes >> 10),
+               dg_u64(b, sp->total_bytes >> 10));
 }

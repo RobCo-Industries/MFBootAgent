@@ -16,8 +16,8 @@
 #include "mt_walk.h"
 
 #define CHUNK (32u * 1024u)
-/* Work rows: 0 progress, 1 the summary, from 2 the failures. */
-#define ROW_ERR0 2u
+/* Work rows: 0 progress, 1 the counts, 2 the free space, from 3 the failures. */
+#define ROW_ERR0 3u
 
 typedef struct {
     mt_run_t *r;
@@ -150,10 +150,12 @@ void mt_tool_card(mt_run_t *r)
     const mt_walk_ops_t ops = { &wc, op_opendir, op_readdir, op_closedir, op_file, op_error,
                                 op_abort };
     static mt_walk_t w;
+    static char keys[MT_KEYS_MAX];
     fs_statvfs_t vfs;
+    mt_space_t sp;
     char line[MT_LINE_MAX];
+    char kib[DG_U64_SIZE];
     uint32_t t0 = timer_now_ms();
-    int vrc;
 
     if (mt_need_card(r) != 0) {
         return;
@@ -163,18 +165,15 @@ void mt_tool_card(mt_run_t *r)
     wc.row = ROW_ERR0;
     dg_rate_init(&wc.rate, MT_PROGRESS_MS);
     k_memset(&vfs, 0, sizeof(vfs));
-    vrc = fs_statvfs(MT_VOL, &vfs);
-    wc.used = vrc == 0 ? vfs.total_bytes - vfs.free_bytes : 0;
+    sp.rc = fs_statvfs(MT_VOL, &vfs);
+    sp.free_bytes = vfs.free_bytes;
+    sp.total_bytes = vfs.total_bytes;
+    sp.fat = vfs.fat_type;
+    wc.used = sp.rc == 0 ? vfs.total_bytes - vfs.free_bytes : 0;
     mt_work_line(0, "Reading every file of the card.", 0);
     (void)mt_walk(&ops, &w);
-    mt_keys(r, "dirs=%u files=%u bytes=%u errors=%u", w.dirs, w.files, (unsigned)w.bytes,
-            w.errors);
-    if (vrc == 0) {
-        mt_keys(r, "free_bytes=%u total_bytes=%u fat=%u", (unsigned)vfs.free_bytes,
-                (unsigned)vfs.total_bytes, (unsigned)vfs.fat_type);
-    } else {
-        mt_keys(r, "statvfs_rc=%d", vrc);
-    }
+    mt_card_keys(keys, sizeof(keys), &w, &sp);
+    mt_keys(r, "%s", keys);
     if (w.errors != 0) {
         char mpath[MT_WALK_PATH + 1];
 
@@ -182,10 +181,10 @@ void mt_tool_card(mt_run_t *r)
         mt_keys(r, "first_path=%s first_what=%s", mpath, mt_walk_what(w.first_what));
     }
     mt_keys(r, "ms=%u", (unsigned)(timer_now_ms() - t0));
-    k_snprintf(line, sizeof(line), "%u folders, %u files, %u errors. Free %u KiB of %u KiB.",
-               w.dirs, w.files, w.errors, (unsigned)(vfs.free_bytes >> 10),
-               (unsigned)(vfs.total_bytes >> 10));
+    mt_card_counts(line, sizeof(line), &w);
     mt_work_line(1, line, 1);
+    mt_card_free(line, sizeof(line), &sp);
+    mt_work_line(2, line, 1);
     if (wc.stop) {
         r->result = MT_FAIL;
         mt_keys(r, "why=stopped");
@@ -193,11 +192,11 @@ void mt_tool_card(mt_run_t *r)
     } else if (w.errors != 0) {
         r->result = MT_FAIL;
         mt_text(r, "Errors: %u.", w.errors);
-    } else if (vrc != 0) {
+    } else if (sp.rc != 0) {
         r->result = MT_FAIL;
         mt_text(r, "No free space count.");
     } else {
         r->result = MT_OK;
-        mt_text(r, "%u files, %u KiB free.", w.files, (unsigned)(vfs.free_bytes >> 10));
+        mt_text(r, "%u files, %s KiB free.", w.files, dg_u64(kib, vfs.free_bytes >> 10));
     }
 }

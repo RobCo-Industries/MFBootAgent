@@ -212,6 +212,17 @@ int dg_rate_due(dg_rate_t *r, uint32_t now_ms);
 /* Percent of done in total, 0 to 100, with no overflow. */
 unsigned dg_percent(uint64_t done, uint64_t total);
 
+/* ---- 64-bit numbers ---- */
+
+/*
+ * The library's %u takes 32 bits, so a size, a byte count or a block
+ * count that can pass 4 GiB goes through dg_u64() and %s. DG_U64_SIZE
+ * holds the 20 digits of UINT64_MAX and the end.
+ */
+#define DG_U64_SIZE 21u
+/* Writes v in decimal into out and returns out. */
+const char *dg_u64(char out[DG_U64_SIZE], uint64_t v);
+
 /* ---- Verdicts ---- */
 
 /*

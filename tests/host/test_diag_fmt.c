@@ -255,6 +255,33 @@ TEST(progress_rate)
     CHECK_EQ(dg_percent(UINT64_MAX / 2, UINT64_MAX), 50);
 }
 
+TEST(u64_whole)
+{
+    char out[DG_U64_SIZE];
+
+    CHECK_STR(dg_u64(out, 0), "0");
+    CHECK_STR(dg_u64(out, 4294967295u), "4294967295");
+    CHECK_STR(dg_u64(out, 4294967296u), "4294967296");
+    CHECK_STR(dg_u64(out, 4294967297u), "4294967297");
+    /* 2 TiB, and 2 TiB in 512-byte blocks. */
+    CHECK_STR(dg_u64(out, (uint64_t)2 << 40), "2199023255552");
+    CHECK_STR(dg_u64(out, (uint64_t)1 << 32), "4294967296");
+    CHECK_STR(dg_u64(out, UINT64_MAX), "18446744073709551615");
+    CHECK_EQ(strlen(dg_u64(out, UINT64_MAX)) + 1, DG_U64_SIZE);
+}
+
+TEST(percent_past_4_gib)
+{
+    const uint64_t g4 = (uint64_t)1 << 32;
+    const uint64_t t2 = (uint64_t)2 << 40;
+
+    CHECK_EQ(dg_percent(g4 - 1, g4 * 2), 49);
+    CHECK_EQ(dg_percent(g4 + 1, g4 * 2), 50);
+    CHECK_EQ(dg_percent(t2 / 4, t2), 25);
+    CHECK_EQ(dg_percent(t2 - 1, t2), 99);
+    CHECK_EQ(dg_percent(t2, t2), 100);
+}
+
 TEST(timer_verdict)
 {
     int32_t ppm = 1;

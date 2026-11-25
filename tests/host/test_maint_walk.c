@@ -289,3 +289,64 @@ TEST(a_root_that_does_not_open)
     CHECK_STR(f.errors[0], "/ opendir -1");
     CHECK_EQ(f.closes, 0);
 }
+
+/* Sizes past 32 bits come out whole: just under and over 4 GiB, and 2 TiB. */
+TEST(card_sizes_whole)
+{
+    const uint64_t g4 = (uint64_t)1 << 32;
+    const uint64_t t2 = (uint64_t)2 << 40;
+    static const struct {
+        uint64_t bytes, free_bytes, total_bytes;
+        const char *keys;
+        const char *free_line;
+    } rows[] = {
+        { 4294967295u, 4294967295u, 4294967295u,
+          "dirs=3 files=7 bytes=4294967295 errors=0 free_bytes=4294967295 "
+          "total_bytes=4294967295 fat=32", "Free 4194303 KiB of 4194303 KiB." },
+        { 4294967297u, 4294967296u, 8589934592u,
+          "dirs=3 files=7 bytes=4294967297 errors=0 free_bytes=4294967296 "
+          "total_bytes=8589934592 fat=32", "Free 4194304 KiB of 8388608 KiB." },
+        { 0, 0, 0, NULL, NULL },
+    };
+    char out[400];
+    mt_walk_t w;
+    mt_space_t sp;
+    unsigned i;
+
+    memset(&w, 0, sizeof(w));
+    w.dirs = 3;
+    w.files = 7;
+    for (i = 0; rows[i].keys != NULL; i++) {
+        w.bytes = rows[i].bytes;
+        sp.rc = 0;
+        sp.free_bytes = rows[i].free_bytes;
+        sp.total_bytes = rows[i].total_bytes;
+        sp.fat = 32;
+        mt_card_keys(out, sizeof(out), &w, &sp);
+        CHECK_STR(out, rows[i].keys);
+        mt_card_free(out, sizeof(out), &sp);
+        CHECK_STR(out, rows[i].free_line);
+    }
+    w.bytes = t2 - 1;
+    sp.free_bytes = t2 - g4;
+    sp.total_bytes = t2;
+    mt_card_keys(out, sizeof(out), &w, &sp);
+    CHECK_STR(out, "dirs=3 files=7 bytes=2199023255551 errors=0 free_bytes=2194728288256 "
+                   "total_bytes=2199023255552 fat=32");
+    mt_card_free(out, sizeof(out), &sp);
+    CHECK_STR(out, "Free 2143289344 KiB of 2147483648 KiB.");
+    /* The free line fits a work row even for the largest volume. */
+    sp.free_bytes = UINT64_MAX;
+    sp.total_bytes = UINT64_MAX;
+    mt_card_free(out, sizeof(out), &sp);
+    CHECK(strlen(out) < 79);
+    sp.rc = -1;
+    mt_card_keys(out, sizeof(out), &w, &sp);
+    CHECK_STR(out, "dirs=3 files=7 bytes=2199023255551 errors=0 statvfs_rc=-1");
+    mt_card_free(out, sizeof(out), &sp);
+    CHECK_STR(out, "No free space count: error -1.");
+    /* The counts row fits a work row with the largest counts. */
+    w.dirs = w.files = w.errors = 4294967295u;
+    mt_card_counts(out, sizeof(out), &w);
+    CHECK(strlen(out) < 79);
+}

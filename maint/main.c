@@ -573,6 +573,9 @@ static void init_input(void)
  */
 static void mount_card(void)
 {
+    char lba[DG_U64_SIZE];
+    char blocks[DG_U64_SIZE];
+
     mt.sd_rc = sd_init();
     if (mt.sd_rc != 0) {
         mt_mark("error code=io what=sd rc=%d", mt.sd_rc);
@@ -586,7 +589,8 @@ static void mount_card(void)
         return;
     }
     mt.mounted = 1;
-    mt_mark("mount lba=%u blocks=%u", (unsigned)vol.start_lba, (unsigned)vol.block_count);
+    mt_mark("mount lba=%s blocks=%s", dg_u64(lba, vol.start_lba),
+            dg_u64(blocks, vol.block_count));
 }
 
 /* [maint] of BOOT.CFG, read through the guard: the read writes nothing. */

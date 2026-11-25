@@ -6,6 +6,7 @@
 #ifndef MT_WALK_H
 #define MT_WALK_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 /* Folders open at once: the root and seven levels below it. */
@@ -72,5 +73,25 @@ const char *mt_walk_what(int what);
 
 /* 1 when the walk found no failure. */
 int mt_walk_clean(const mt_walk_t *w);
+
+/* The space of the volume, as fs_statvfs() gave it: rc is 0 or its error. */
+typedef struct {
+    int rc;
+    uint64_t free_bytes;
+    uint64_t total_bytes;
+    unsigned fat;
+} mt_space_t;
+
+/*
+ * The result keys of check card, every size whole: "dirs files bytes
+ * errors", then "free_bytes total_bytes fat" or "statvfs_rc".
+ */
+void mt_card_keys(char *out, size_t size, const mt_walk_t *w, const mt_space_t *sp);
+
+/* Work row 1: "<n> folders, <n> files, <n> errors." */
+void mt_card_counts(char *out, size_t size, const mt_walk_t *w);
+
+/* Work row 2: "Free <n> KiB of <n> KiB.", or the statvfs error. */
+void mt_card_free(char *out, size_t size, const mt_space_t *sp);
 
 #endif

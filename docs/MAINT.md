@@ -97,7 +97,7 @@ Each failure prints a `card_error` marker and a work row with its path. The walk
 | `deep` | A folder more than seven levels below the root. It is not entered. |
 | `long` | A path longer than 255 bytes. The path in the row is its folder. |
 
-Then it reports the free space and the size of the volume from `fs_statvfs()`. The tool gives OK when there is no failure and the free space reads. On a 16 MiB card filled to its last 64 KiB, the walk takes about 4 s in QEMU.
+Then it reports the free space and the size of the volume from `fs_statvfs()`. Work row 1 gives the counts, row 2 the free space in KiB, and the failures follow from row 3. Every size is shown whole, in the marker in bytes. A card of 2 TiB gives `total_bytes=2199023255552`, not a number cut to 32 bits. The library's `%u` takes 32 bits, so the image prints 64-bit numbers with `dg_u64()` of `diag/dg_fmt.c`. The `mount` marker prints `lba` and `blocks` the same way. The tool gives OK when there is no failure and the free space reads. On a 16 MiB card filled to its last 64 KiB, the walk takes about 4 s in QEMU.
 
 ### Check images
 
@@ -254,7 +254,7 @@ The test build, `build/mainttest/maint.img`, adds `wprobe`. The next read-only t
 
 - `diag/dg_sd.c`: the image name rule, the scan of `/ROBCO` and the write guard. The guard gained `pass`, set only by restore users. `DIAG.SYS` never sets it.
 - `diag/dg_sdimg.c`: the check of one image file, moved out of `diag/t_sd.c`.
-- `diag/dg_fmt.c`: the progress rate.
+- `diag/dg_fmt.c`: the progress rate and `dg_u64()`, the 64-bit number formatter.
 - `src/portreq.c`: the port request rule.
 
 The screen rows, the screen set-up, the input set-up and the port commands are copied from `diag/main.c`. Sharing them would mean reshaping `DIAG.SYS`'s state.
