@@ -5,7 +5,8 @@
 ROBCO_CORE ?= ../external/robco-core
 IMAGE      := diag
 LINK_ADDR  := 0x00400000
-SRCS       := $(sort $(wildcard *.c))
+# ../src/portreq.c: the port request rule, shared with the boot agent.
+SRCS       := $(sort $(wildcard *.c)) ../src/portreq.c
 CONFIG_H   := robco_config.h
 
 include $(ROBCO_CORE)/mk/robco.mk

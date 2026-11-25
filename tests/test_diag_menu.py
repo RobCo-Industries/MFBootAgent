@@ -2,8 +2,8 @@
 
 import re
 
-from diag import (MENU_ROWS, READY, TIMEOUT, alone, command, diag_image, dump,  # noqa: F401
-                  events, key, one, results, run, state)
+from diag import (MENU_ROWS, READY, TIMEOUT, alone, batch, command, diag_image,  # noqa: F401
+                  dump, events, key, one, results, run, state, wait_state)
 from mfboot import check_golden, screenshot
 
 ORDER = ["boot", "handoff", "screen", "mmu", "input", "selfcheck", "ready"]
@@ -90,3 +90,58 @@ def test_reboot_from_menu_and_port(board, diag_image):
         vm.send("reboot\n", port=1)
         vm.wait_for("ev=reboot source=maint", timeout=TIMEOUT)
         vm.wait_for(re.compile(r"(@RC stage=diag ev=ready\n[\s\S]*){3}"), timeout=TIMEOUT)
+
+
+def select_rng(vm):
+    """Moves the selection to row 7, RNG, without starting it."""
+    assert [r.status for r in batch(vm, ["key down"] * 6)] == ["ok"] * 6
+    assert state(vm)["sel"] == "7"
+
+
+def ran(vm):
+    return [m["name"] for m in events(vm, "diag")]
+
+
+# QEMU hands the port's bytes over a few at a time, so the image can take
+# a key before the next line arrives. Twelve CHAR events that the menu
+# ignores go first: the menu takes one per input poll, so `key select`
+# is still queued when the port accepts the `diag` behind it.
+FILLER = "text " + "z" * 12
+
+
+def test_port_select_then_diag_drops_request(board, diag_image):
+    with alone(diag_image, board) as vm:
+        select_rng(vm)
+        assert [r.status for r in batch(vm, [FILLER, "key select", "diag timer"])] == ["ok"] * 3
+        vm.wait_for(re.compile(r"ev=diag name=rng [^\n]*\n"), timeout=TIMEOUT)
+        st = wait_state(vm, "menu")
+        assert st["request"] == "none", st
+        # A later request runs next: nothing the port sent earlier runs before it.
+        run(vm, "rng")
+        assert ran(vm) == ["rng", "rng"], vm.serial
+        drop = one(vm, "diag_drop")
+        assert (drop["name"], drop["why"]) == ("timer", "run"), drop
+
+
+def test_port_diag_then_select_runs_request(board, diag_image):
+    with alone(diag_image, board) as vm:
+        select_rng(vm)
+        assert [r.status for r in batch(vm, [FILLER, "diag timer", "key select"])] == ["ok"] * 3
+        vm.wait_for(re.compile(r"ev=diag name=timer [^\n]*\n"), timeout=TIMEOUT)
+        st = wait_state(vm, "menu")
+        assert st["request"] == "none", st
+        # The SELECT came during the test: the image drops it with the other keys.
+        run(vm, "rng")
+        assert ran(vm) == ["timer", "rng"], vm.serial
+        assert not events(vm, "diag_drop")
+
+
+def test_port_reboot_drops_request(board, diag_image):
+    with alone(diag_image, board) as vm:
+        vm.send("".join(c + "\n" for c in [FILLER, "diag timer", "reboot"]), port=1)
+        vm.wait_for("ev=reboot source=maint", timeout=TIMEOUT)
+        vm.wait_for(re.compile(r"(@RC stage=diag ev=ready\n[\s\S]*){2}"), timeout=TIMEOUT)
+        assert state(vm)["request"] == "none"
+        drop = one(vm, "diag_drop")
+        assert (drop["name"], drop["why"]) == ("timer", "reboot"), drop
+        assert not ran(vm), vm.serial

@@ -27,11 +27,12 @@
 #include <robco/uart_mini.h>
 
 #include "dg.h"
+#include "../src/portreq.h"
 
 #define SCREEN_W 640u
 #define SCREEN_H 480u
 #define DEBOUNCE_MS 20u
-/* The main loop wakes at least this often to start a test the port asked for. */
+/* The longest wait for one input event in the main loop. */
 #define LOOP_MS 50u
 
 dg_state_t dg;
@@ -53,7 +54,14 @@ static dg_menu_t menu;
 static int results[DG_ITEMS];
 static char texts[DG_ITEMS][DG_TEXT_MAX];
 static char status[DG_LINE_MAX];
-static int pending = -1;        /* a row the port asked to run */
+/*
+ * The port's diag request, see mfb_port_req(): req_live is the number of
+ * the marked event that waits in the input queue, or 0, and req_item the
+ * row it runs.
+ */
+static int32_t req_live;
+static int32_t req_seq;
+static unsigned req_item;
 
 /* ---- Output ---------------------------------------------------------- */
 
@@ -172,7 +180,11 @@ int dg_poll_abort(void)
 
 int dg_wait_event(input_event_t *ev, uint32_t ms)
 {
-    return input_wait(ev, ms);
+    if (!input_wait(ev, ms)) {
+        return 0;
+    }
+    /* A dropped port request is no key for the test. */
+    return mfb_port_req(ev, 0) == MFB_PORT_NONE;
 }
 
 int dg_i2c(void)
@@ -331,8 +343,26 @@ static void run_item(unsigned item)
     dg.phase = DG_PHASE_MENU;
 }
 
+static const char *item_name(unsigned item)
+{
+    return item == DG_ITEM_ALL ? "all" : dg_test_name(item);
+}
+
+/*
+ * An earlier action overtook the port's request: it never runs. Its
+ * marked event stays in the queue and comes up stale.
+ */
+static void drop_request(const char *why)
+{
+    if (req_live != 0) {
+        req_live = 0;
+        dg_mark("diag_drop name=%s why=%s", item_name(req_item), why);
+    }
+}
+
 static void reboot(const char *source)
 {
+    drop_request("reboot");
     dg_mark("reboot source=%s", source);
     uart_flush();
     power_reboot();
@@ -375,25 +405,38 @@ static int command(int argc, char *argv[], input_script_reply_t *reply, void *ct
                    "phase=%s trusted=%d fb=%d sel=%u test=%s request=%s pending=%u\n",
                    phase_name(dg.phase), dg.trusted, dg.fb_ok, menu.sel + 1,
                    dg.test >= 0 ? dg_test_name((unsigned)dg.test) : "none",
-                   pending < 0 ? "none" :
-                   pending == DG_ITEM_ALL ? "all" : dg_test_name((unsigned)pending),
+                   req_live == 0 ? "none" : item_name(req_item),
                    input_pending());
         reply->write(line);
         return 0;
     }
     if (k_strcmp(argv[0], "diag") == 0 && argc == 2) {
         int item = dg_test_find(argv[1]);
+        input_event_t wake = { 0 };
 
         if (item < 0) {
             reply->reason = "unknown test";
             return -1;
         }
-        if (dg.phase != DG_PHASE_MENU || pending >= 0) {
+        if (dg.phase != DG_PHASE_MENU || req_live != 0) {
             reply->reason = "busy";
             return -1;
         }
-        /* Long work runs in the main loop, never in this handler. */
-        pending = item;
+        /*
+         * Long work runs in the main loop, never in this handler. The
+         * request goes through the input queue, behind the keys sent
+         * before it: the menu takes them first.
+         */
+        wake.type = INPUT_EV_CHAR;
+        wake.source = INPUT_SRC_SCRIPT;
+        wake.value = req_seq < INT32_MAX ? req_seq + 1 : 1;
+        if (input_push(&wake) != 0) {
+            reply->reason = "busy";
+            return -1;
+        }
+        req_seq = wake.value;
+        req_live = wake.value;
+        req_item = (unsigned)item;
         return 0;
     }
     if (k_strcmp(argv[0], "dump") == 0 && argc == 1) {
@@ -583,18 +626,24 @@ void robco_main(void)
         int act = DG_ACT_NONE;
 
         if (input_wait(&ev, LOOP_MS)) {
-            act = dg_menu_event(&menu, &ev, &item);
-            redraw_selection();
+            int port = mfb_port_req(&ev, req_live);
+
+            if (port == MFB_PORT_LIVE) {
+                /* The port's diag, in its turn behind the keys before it. */
+                req_live = 0;
+                item = req_item;
+                act = DG_ACT_RUN;
+            } else if (port == MFB_PORT_NONE) {
+                act = dg_menu_event(&menu, &ev, &item);
+                redraw_selection();
+            }
         }
         if (act == DG_ACT_REBOOT) {
             reboot("key");
         }
-        if (act == DG_ACT_NONE && pending >= 0) {
-            item = (unsigned)pending;
-            pending = -1;
-            act = DG_ACT_RUN;
-        }
         if (act == DG_ACT_RUN) {
+            /* A key started this run before the port's request came up. */
+            drop_request("run");
             run_item(item);
             input_flush();
         }

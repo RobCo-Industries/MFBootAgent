@@ -1,6 +1,7 @@
 /* The diagnostics menu state machine and the live view exit rule. */
 
 #include "dg_menu.h"
+#include "portreq.h"
 #include "rc_test.h"
 
 static dg_menu_t m;
@@ -189,4 +190,31 @@ TEST(live_view_exits)
     CHECK_STR(dg_live_why(DG_LIVE_LONG), "long");
     CHECK_STR(dg_live_why(DG_LIVE_IDLE), "idle");
     CHECK_STR(dg_live_why(DG_LIVE_STAY), "none");
+}
+
+TEST(port_diag_request_in_queue_order)
+{
+    input_event_t req = { 0 };
+    input_event_t sel = { 0 };
+
+    req.type = INPUT_EV_CHAR;
+    req.source = INPUT_SRC_SCRIPT;
+    req.value = 1;
+    sel.type = INPUT_EV_KEY;
+    sel.source = INPUT_SRC_SCRIPT;
+    sel.code = INPUT_KEY_SELECT;
+    sel.value = INPUT_PRESS;
+    /* diag then SELECT: the request comes up live and runs first. */
+    CHECK_EQ(mfb_port_req(&req, 1), MFB_PORT_LIVE);
+    /* SELECT then diag: SELECT is a key, its run drops the request, live becomes 0. */
+    CHECK_EQ(mfb_port_req(&sel, 1), MFB_PORT_NONE);
+    CHECK_EQ(mfb_port_req(&req, 0), MFB_PORT_STALE);
+    /* A newer request does not revive the dropped one. */
+    CHECK_EQ(mfb_port_req(&req, 2), MFB_PORT_STALE);
+    /* The marked event is no key for the menu: it neither moves nor starts a row. */
+    dg_menu_init(&m);
+    item = 99;
+    CHECK_EQ(dg_menu_event(&m, &req, &item), DG_ACT_NONE);
+    CHECK_EQ(m.sel, 0u);
+    CHECK_EQ(item, 99u);
 }
