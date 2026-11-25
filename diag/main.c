@@ -425,6 +425,10 @@ static int command(int argc, char *argv[], input_script_reply_t *reply, void *ct
         dg.sd_probe_write = 1;
         return 0;
     }
+    if (k_strcmp(argv[0], "sdmulti") == 0 && argc == 1) {
+        dg.sd_fail_multi = 1;
+        return 0;
+    }
 #endif
     reply->reason = "unknown command";
     return -1;

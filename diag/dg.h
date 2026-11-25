@@ -44,6 +44,7 @@ typedef struct {
 #ifdef DG_TEST
     uint32_t fault_addr;    /* test builds: the memory test plants a fault here, 0 for none */
     int sd_probe_write;     /* test builds: the SD test sends one write to its guard */
+    int sd_fail_multi;      /* test builds: the next SD run fails every multi-block read */
 #endif
 } dg_state_t;
 

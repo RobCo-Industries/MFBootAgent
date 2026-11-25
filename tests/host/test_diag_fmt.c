@@ -332,7 +332,8 @@ static void worst_texts(void)
     T(DG_TX_SD_NOVOL);
     T(DG_TX_SD_NODIR);
     T(DG_TX_SD_DIRERR, -99);
-    T(DG_TX_SD_BLOCKS, 65536u, 65536u);
+    T(DG_TX_SD_BLOCKS, 65536u, 1024u);
+    T(DG_TX_SD_CHUNKS, 1024u);
     T(DG_TX_SD_BAD, "ABCDEFGH.SYS", "version");
     /* A long name is cut to 12 characters. */
     T(DG_TX_SD_BAD, "A VERY LONG FILE NAME.SYS", "version");

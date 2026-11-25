@@ -40,6 +40,32 @@ int dg_sd_chunk(const dg_sd_plan_t *p, uint32_t i, uint64_t *lba, uint32_t *coun
 uint64_t dg_sd_plan_blocks(const dg_sd_plan_t *p);
 
 /*
+ * The block read of one chunk. read() reads count blocks at lba and
+ * returns 0 or a negative error. A failed chunk read counts in
+ * chunk_errors, then each block of the chunk is read alone, and each
+ * block that fails again counts in errors. A failed chunk read is a fault
+ * even when every block read alone: some cards and controllers fail only
+ * on multi-block reads, and the boot loader reads that way.
+ */
+typedef int (*dg_sd_read_fn)(void *ctx, uint64_t lba, uint32_t count);
+
+typedef struct {
+    uint32_t chunk_errors;  /* chunk reads that failed */
+    uint32_t errors;        /* blocks that failed when read alone */
+    uint64_t first_bad;     /* first block that failed alone, if errors != 0 */
+} dg_sd_reads_t;
+
+/* Sets every count to 0. */
+void dg_sd_reads_init(dg_sd_reads_t *s);
+
+/* Reads one chunk by the rule above and counts the result in s. */
+void dg_sd_read_chunk(dg_sd_reads_t *s, dg_sd_read_fn read, void *ctx, uint64_t lba,
+                      uint32_t count);
+
+/* 1 when the reads saw no fault: no failed chunk read and no bad block. */
+int dg_sd_reads_ok(const dg_sd_reads_t *s);
+
+/*
  * The file check of /ROBCO. The rule that names images: an entry whose
  * extension is .SYS, .BAK or .IMG, in any case, must be an image. Its
  * outcome is DG_SDF_OK, an rimg_err_t code of rimg_validate(), or one of
@@ -131,9 +157,10 @@ typedef struct {
     blk_dev_t dev;      /* mount this one */
     blk_dev_t *card;    /* the real device, never written */
     uint32_t writes;    /* write attempts refused */
+    int fail_multi;     /* test hook: reads of more than one block fail with BLK_ERR_IO */
 } dg_sd_guard_t;
 
-/* Builds the guard over card with writes at 0. */
+/* Builds the guard over card with writes and fail_multi at 0. */
 void dg_sd_guard_init(dg_sd_guard_t *g, blk_dev_t *card);
 
 #endif

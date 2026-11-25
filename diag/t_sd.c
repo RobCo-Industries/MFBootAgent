@@ -51,11 +51,16 @@ static void clean(char *out, size_t size, const char *in, size_t n)
 }
 
 /* The blocks of the volume. Returns 1 when ESC stopped it. */
-static int read_blocks(dg_run_t *r, uint32_t *errors)
+static int guard_read(void *ctx, uint64_t lba, uint32_t count)
+{
+    (void)ctx;
+    return blk_read(&guard.dev, lba, count, buf);
+}
+
+static int read_blocks(dg_run_t *r, dg_sd_reads_t *rd)
 {
     dg_sd_plan_t plan;
     dg_rate_t rate;
-    uint64_t first_bad = 0;
     uint64_t done = 0;
     uint64_t lba;
     uint32_t count;
@@ -64,24 +69,12 @@ static int read_blocks(dg_run_t *r, uint32_t *errors)
     uint32_t ms;
     char line[DG_LINE_MAX];
 
-    *errors = 0;
+    dg_sd_reads_init(rd);
     dg_sd_plan(&plan, vol.start_lba, vol.block_count);
     dg_rate_init(&rate, DG_PROGRESS_MS);
     for (i = 0; i < plan.chunks; i++) {
         (void)dg_sd_chunk(&plan, i, &lba, &count);
-        if (blk_read(&guard.dev, lba, count, buf) != 0) {
-            uint32_t k;
-
-            /* Find the bad blocks of the chunk one by one. */
-            for (k = 0; k < count; k++) {
-                if (blk_read(&guard.dev, lba + k, 1, buf) != 0) {
-                    if (*errors == 0) {
-                        first_bad = lba + k;
-                    }
-                    (*errors)++;
-                }
-            }
-        }
+        dg_sd_read_chunk(rd, guard_read, 0, lba, count);
         done += count;
         if (dg_poll_abort()) {
             read_total = done;
@@ -91,16 +84,17 @@ static int read_blocks(dg_run_t *r, uint32_t *errors)
     }
     ms = timer_now_ms() - t0;
     read_total = done;
-    dg_keys(r, "vol_lba=%u vol_blocks=%u read=%u sampled=%d errors=%u", (unsigned)vol.start_lba,
-            (unsigned)vol.block_count, (unsigned)done, plan.sampled, (unsigned)*errors);
-    if (*errors != 0) {
-        dg_keys(r, "first_bad=%u", (unsigned)first_bad);
+    dg_keys(r, "vol_lba=%u vol_blocks=%u read=%u sampled=%d chunk_errors=%u errors=%u",
+            (unsigned)vol.start_lba, (unsigned)vol.block_count, (unsigned)done, plan.sampled,
+            (unsigned)rd->chunk_errors, (unsigned)rd->errors);
+    if (rd->errors != 0) {
+        dg_keys(r, "first_bad=%u", (unsigned)rd->first_bad);
     }
     dg_keys(r, "ms=%u kib_s=%u", (unsigned)ms,
             (unsigned)(ms != 0 ? done * BLK_SECTOR_SIZE / 1024u * 1000u / ms : 0));
-    k_snprintf(line, sizeof(line), "Read %u of %u blocks%s, %u errors, %u ms", (unsigned)done,
-               (unsigned)vol.block_count, plan.sampled ? " (sample)" : "", (unsigned)*errors,
-               (unsigned)ms);
+    k_snprintf(line, sizeof(line), "Read %u of %u blocks%s, %u errors, %u failed chunks, %u ms",
+               (unsigned)done, (unsigned)vol.block_count, plan.sampled ? " (sample)" : "",
+               (unsigned)rd->errors, (unsigned)rd->chunk_errors, (unsigned)ms);
     dg_work_line(2, line, 1);
     return 0;
 }
@@ -255,14 +249,16 @@ void dg_test_sd(dg_run_t *r)
     char oid[4];
     char pnm[8];
     dg_sd_scan_t sc;
-    uint32_t errors = 0;
+    dg_sd_reads_t rd;
     int scan = DG_SD_SCAN_OK;
     int rc;
 #ifdef DG_TEST
     /* Test builds: sdwrite arms one probe; this run consumes it. */
     int probe = dg.sd_probe_write;
+    int fail_multi = dg.sd_fail_multi;
 
     dg.sd_probe_write = 0;
+    dg.sd_fail_multi = 0;
 #endif
 
     rc = sd_init();
@@ -275,7 +271,10 @@ void dg_test_sd(dg_run_t *r)
     }
     card = sd_blkdev();
     dg_sd_guard_init(&guard, card);
+    dg_sd_reads_init(&rd);
 #ifdef DG_TEST
+    /* Test builds: sdmulti makes every multi-block read of this run fail. */
+    guard.fail_multi = fail_multi;
     /* Test builds: prove the counter is reachable through blk_write(). */
     if (probe) {
         dg_keys(r, "probe_rc=%d", blk_write(&guard.dev, 0, 1, buf));
@@ -299,7 +298,7 @@ void dg_test_sd(dg_run_t *r)
         return;
     }
     dg_work_line(3, "File          Size     Image", 1);
-    if (read_blocks(r, &errors) || (scan = check_files(r, &sc)) == DG_SD_SCAN_ABORT) {
+    if (read_blocks(r, &rd) || (scan = check_files(r, &sc)) == DG_SD_SCAN_ABORT) {
         (void)fs_unmount("sd");
         r->result = DG_SKIPPED;
         dg_keys(r, "why=abort writes=%u", (unsigned)guard.writes);
@@ -308,10 +307,12 @@ void dg_test_sd(dg_run_t *r)
     }
     (void)fs_unmount("sd");
     dg_keys(r, "writes=%u", (unsigned)guard.writes);
-    r->result = errors == 0 && sc.bad == 0 && guard.writes == 0 && scan == DG_SD_SCAN_OK ?
+    r->result = dg_sd_reads_ok(&rd) && sc.bad == 0 && guard.writes == 0 && scan == DG_SD_SCAN_OK ?
                 DG_OK : DG_FAIL;
-    if (errors != 0) {
-        dg_text(r, DG_TX_SD_BLOCKS, (unsigned)errors, (unsigned)read_total);
+    if (rd.errors != 0) {
+        dg_text(r, DG_TX_SD_BLOCKS, (unsigned)rd.errors, (unsigned)rd.chunk_errors);
+    } else if (rd.chunk_errors != 0) {
+        dg_text(r, DG_TX_SD_CHUNKS, (unsigned)rd.chunk_errors);
     } else if (scan == DG_SD_SCAN_NODIR) {
         dg_text(r, DG_TX_SD_NODIR);
     } else if (scan == DG_SD_SCAN_DIRERR) {

@@ -162,7 +162,14 @@ TEST(guard_counts_and_refuses_writes)
     dg_sd_guard_init(&g, &card);
     CHECK_EQ(blk_write(&g.dev, 5, 1, b), BLK_ERR_RO);
     CHECK_EQ(g.writes, 1);
-    CHECK_EQ(card_writes, 0);
+    CHECK_EQ(card_writes, 0);    /* The fail_multi hook fails reads of more than one block, never a single block. */
+    CHECK_EQ(g.fail_multi, 0);
+    g.fail_multi = 1;
+    card_reads = 0;
+    CHECK_EQ(blk_read(&g.dev, 7, 2, b), BLK_ERR_IO);
+    CHECK_EQ(card_reads, 0);
+    CHECK_EQ(blk_read(&g.dev, 7, 1, b), 0);
+    CHECK_EQ(card_reads, 1);
 }
 
 TEST(image_names)
@@ -465,4 +472,80 @@ TEST(scan_abort_closes_the_directory)
     CHECK_EQ(scan(&f, card, CARD_N, &s), DG_SD_SCAN_ABORT);
     CHECK_EQ(f.reports, 2);
     CHECK_EQ(f.closed, 1);
+}
+
+/* A fake card for dg_sd_read_chunk(): multi-block reads and some blocks fail. */
+typedef struct {
+    int fail_multi;     /* reads of more than one block fail */
+    uint64_t bad[4];    /* blocks that fail when read alone */
+    unsigned n_bad;
+    unsigned reads;
+} reads_fake_t;
+
+static int fake_read(void *ctx, uint64_t lba, uint32_t count)
+{
+    reads_fake_t *f = ctx;
+    unsigned i;
+
+    f->reads++;
+    if (count > 1 && f->fail_multi) {
+        return BLK_ERR_IO;
+    }
+    for (i = 0; i < f->n_bad; i++) {
+        if (f->bad[i] >= lba && f->bad[i] < lba + count) {
+            return BLK_ERR_IO;
+        }
+    }
+    return 0;
+}
+
+TEST(chunk_read_fails_and_every_block_reads_alone)
+{
+    reads_fake_t f;
+    dg_sd_reads_t s;
+
+    memset(&f, 0, sizeof(f));
+    f.fail_multi = 1;
+    dg_sd_reads_init(&s);
+    dg_sd_read_chunk(&s, fake_read, &f, 100, 4);
+    dg_sd_read_chunk(&s, fake_read, &f, 104, 4);
+    /* Each failed chunk is retried block by block: 2 x (1 + 4) reads. */
+    CHECK_EQ(f.reads, 10);
+    CHECK_EQ(s.errors, 0);
+    CHECK_EQ(s.chunk_errors, 2);
+    CHECK_EQ(dg_sd_reads_ok(&s), 0);
+}
+
+TEST(chunk_read_fails_and_some_blocks_fail_alone)
+{
+    reads_fake_t f;
+    dg_sd_reads_t s;
+
+    memset(&f, 0, sizeof(f));
+    f.bad[0] = 102;
+    f.bad[1] = 103;
+    f.n_bad = 2;
+    dg_sd_reads_init(&s);
+    dg_sd_read_chunk(&s, fake_read, &f, 96, 4);
+    dg_sd_read_chunk(&s, fake_read, &f, 100, 4);
+    CHECK_EQ(s.chunk_errors, 1);
+    CHECK_EQ(s.errors, 2);
+    CHECK_EQ(s.first_bad, 102);
+    CHECK_EQ(dg_sd_reads_ok(&s), 0);
+}
+
+TEST(every_chunk_reads_is_ok)
+{
+    reads_fake_t f;
+    dg_sd_reads_t s;
+
+    memset(&f, 0, sizeof(f));
+    dg_sd_reads_init(&s);
+    dg_sd_read_chunk(&s, fake_read, &f, 0, 64);
+    dg_sd_read_chunk(&s, fake_read, &f, 64, 3);
+    CHECK_EQ(f.reads, 2);
+    CHECK_EQ(s.chunk_errors, 0);
+    CHECK_EQ(s.errors, 0);
+    CHECK_EQ(dg_sd_reads_ok(&s), 1);
+    CHECK_EQ(dg_sd_reads_ok(NULL), 0);
 }

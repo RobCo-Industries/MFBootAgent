@@ -79,7 +79,7 @@ The card is read through a write guard in front of its block device. The guard's
 The guard carries no read-only flag on purpose. `blk_write()` refuses a device flagged `BLK_FLAG_READONLY` before it calls the write function, so a flagged guard could never count an attempt. A host test sends writes through `blk_write()` and checks that the guard counts and refuses each one, and that the card sees none.
 
 1. The card identity: type, manufacturer, OEM, product name, serial and size.
-2. The blocks of the boot volume, in reads of 64 blocks. A volume of up to 65536 blocks, 32 MiB, is read whole. A larger one is read as 1024 reads spread from its first block to its last. So the test reads at most 32 MiB. A failed read is retried block by block to find the first bad block.
+2. The blocks of the boot volume, in reads of 64 blocks. A volume of up to 65536 blocks, 32 MiB, is read whole. A larger one is read as 1024 reads spread from its first block to its last. So the test reads at most 32 MiB. A failed read is retried block by block to find the bad blocks. The failed read still fails the test, even when every block then reads alone. Some cards and controllers fail only on multi-block reads, and the boot loader reads that way. `chunk_errors` counts the failed reads and `errors` the blocks that failed alone. The row shows `N chunk reads failed`, or `Bad N blk, M chunks` when blocks failed too.
 3. The files of `/ROBCO`, by the rule below.
 
 The rule that names images: every entry of `/ROBCO` whose extension is `.SYS`, `.BAK` or `.IMG`, in any case, must be an image. The test reads such a file into RAM above the OS slot and checks it with `rimg_validate()`, the loader's own steps. Each image prints an `sd_image` marker and a work row. Its `rc` is one of these:
@@ -182,7 +182,7 @@ The stage name is `diag`. Each line starts with `@RC stage=diag`.
 | Test | Keys after `result` |
 |---|---|
 | `mem` | `ranges start end bytes patterns ms flushed cache`. A fault: `pattern addr expected found bytes`. |
-| `sd` | `probe_rc` in the test build after `sdwrite`, `card mid oid pnm psn blocks vol_lba vol_blocks read sampled errors`, `first_bad` on an error, `ms kib_s files images bad_images others`, `bad_path bad_rc` for the first bad image, `dir_rc` on a directory error, `writes`. No `/ROBCO`: `files=0 dir=missing` in place of the file keys. No card: `why=init rc`. |
+| `sd` | `probe_rc` in the test build after `sdwrite`, `card mid oid pnm psn blocks vol_lba vol_blocks read sampled chunk_errors errors`, `first_bad` on an error, `ms kib_s files images bad_images others`, `bad_path bad_rc` for the first bad image, `dir_rc` on a directory error, `writes`. No `/ROBCO`: `files=0 dir=missing` in place of the file keys. No card: `why=init rc`. |
 | `video` | `width height depth pitch order patterns judge=person` |
 | `audio` | `backend probe init tones notes` |
 | `input` | `events why gpio`. `why` is `back2`, `long` or `idle`. |
@@ -205,4 +205,4 @@ The port is the mini UART: in QEMU, the second serial port. On hardware it reach
 
 `diag` only records the request. The main loop runs the test, so the port keeps answering.
 
-The test build, `build/diagtest/diag.img`, adds `fault <addr>`. It flips one bit at that address after the memory test writes it. It also stops the memory test at 16 MiB. It also adds `sdwrite`: the next SD run sends one write through its guard and reports the result as `probe_rc`. The guard counts and refuses it, so that run fails with `writes=1` and the card does not change. That run clears the request, so later runs send no write. It is not shipped.
+The test build, `build/diagtest/diag.img`, adds `fault <addr>`. It flips one bit at that address after the memory test writes it. It also stops the memory test at 16 MiB. It also adds `sdwrite`: the next SD run sends one write through its guard and reports the result as `probe_rc`. The guard counts and refuses it, so that run fails with `writes=1` and the card does not change. That run clears the request, so later runs send no write. `sdmulti` makes the guard fail every multi-block read of the next SD run with `BLK_ERR_IO`, while single-block reads reach the card. That run fails with `chunk_errors` above 0 and `errors=0`, and clears the request. It is not shipped.

@@ -52,6 +52,38 @@ uint64_t dg_sd_plan_blocks(const dg_sd_plan_t *p)
     return p->sampled ? (uint64_t)p->chunks * DG_SD_CHUNK : p->blocks;
 }
 
+void dg_sd_reads_init(dg_sd_reads_t *s)
+{
+    if (s != NULL) {
+        k_memset(s, 0, sizeof(*s));
+    }
+}
+
+void dg_sd_read_chunk(dg_sd_reads_t *s, dg_sd_read_fn read, void *ctx, uint64_t lba,
+                      uint32_t count)
+{
+    uint32_t k;
+
+    if (s == NULL || read == NULL || read(ctx, lba, count) == 0) {
+        return;
+    }
+    s->chunk_errors++;
+    /* Find the bad blocks of the chunk one by one. */
+    for (k = 0; k < count; k++) {
+        if (read(ctx, lba + k, 1) != 0) {
+            if (s->errors == 0) {
+                s->first_bad = lba + k;
+            }
+            s->errors++;
+        }
+    }
+}
+
+int dg_sd_reads_ok(const dg_sd_reads_t *s)
+{
+    return s != NULL && s->chunk_errors == 0 && s->errors == 0;
+}
+
 static char upper(char c)
 {
     return c >= 'a' && c <= 'z' ? (char)(c - 'a' + 'A') : c;
@@ -180,6 +212,9 @@ static int guard_read(blk_dev_t *dev, uint64_t lba, uint32_t count, void *out)
 {
     dg_sd_guard_t *g = (dg_sd_guard_t *)dev->priv;
 
+    if (count > 1 && g->fail_multi) {
+        return BLK_ERR_IO;
+    }
     return blk_read(g->card, lba, count, out);
 }
 

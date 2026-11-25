@@ -58,6 +58,20 @@ def test_write_attempt_is_counted_and_refused(board, diag_test_image, good_card)
     assert digest(good_card) == before
 
 
+def test_failed_chunk_reads_fail_even_when_every_block_reads_alone(board, diag_test_image,
+                                                                    good_card):
+    """The test build fails every multi-block read once: the run fails with the count."""
+    with alone(diag_test_image, board, sd=good_card) as vm:
+        command(vm, "sdmulti")
+        m = run(vm, "sd")
+        assert m["result"] == "fail", vm.serial
+        assert m["errors"] == "0" and "first_bad" not in m, m
+        assert int(m["chunk_errors"]) > 0, m
+        # sdmulti is one-shot: the next run reads normally and passes.
+        m = run(vm, "sd")
+        assert (m["result"], m["chunk_errors"], m["errors"]) == ("ok", "0", "0"), m
+
+
 def test_corrupted_image(board, diag_image, test_os, need_mtools, tmp_path):
     files = {mfboot.UOS: mfboot.flip(test_os["uos"]), mfboot.MAINT: test_os["maint"]}
     sd = mfboot.card(tmp_path, files)
