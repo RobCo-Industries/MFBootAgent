@@ -23,4 +23,7 @@
 #define ROBCO_SLOT_END          0x00400000
 #endif
 
+/* One volume: the boot volume. The holotape slot is not used here. */
+#define ROBCO_FS_VOLUMES        1
+
 #endif
