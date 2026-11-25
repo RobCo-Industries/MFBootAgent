@@ -64,7 +64,7 @@ def elf_path(image):
 
 
 @contextlib.contextmanager
-def alone(image, board, sd=None, devices=(), wait=True):
+def alone(image, board, sd=None, devices=(), wait=True, qtest=False, gpio_high=()):
     """Boots the maintenance image with no earlier stage: QEMU loads it in the OS slot."""
     with tempfile.TemporaryDirectory(prefix="maint") as tmp:
         tramp = os.path.join(tmp, "tramp.img")
@@ -72,7 +72,7 @@ def alone(image, board, sd=None, devices=(), wait=True):
             f.write(TRAMPOLINE)
         args = ["-device", f"loader,file={image},addr={SLOT:#x},force-raw=on"]
         with boot(tramp, board, sd=sd, serial2=True, extra_args=args + list(devices),
-                  elf=elf_path(image)) as vm:
+                  elf=elf_path(image), qtest=qtest, gpio_high=gpio_high) as vm:
             if wait:
                 vm.wait_for(READY, timeout=TIMEOUT)
             yield vm

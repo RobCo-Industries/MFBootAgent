@@ -35,6 +35,8 @@
 #define SCREEN_W 640u
 #define SCREEN_H 480u
 #define DEBOUNCE_MS 20u
+/* The longest wait for the GPIO stuck-line guard at start. */
+#define GUARD_WAIT_MS 1000u
 /* The longest wait for one input event in the main loop. */
 #define LOOP_MS 50u
 
@@ -550,7 +552,19 @@ static void init_input(void)
         (void)input_gpio_add_button(buttons[i].pin, buttons[i].code, 0, GPIO_PULL_UP);
     }
     gpio = input_gpio_start(MT_TICK_HZ, DEBOUNCE_MS);
-    mt_mark("input serial=%d mini=%d script=%d gpio=%d", serial, mini, script, gpio);
+    if (gpio == 0) {
+        /*
+         * Wait for the stuck-line guard, as the agent does, so the first
+         * press comes after it. Buttons held when it ends come as presses.
+         */
+        uint32_t t0 = timer_now_ms();
+
+        while (input_gpio_status() == INPUT_GPIO_CHECKING && timer_now_ms() - t0 < GUARD_WAIT_MS) {
+            __asm__ volatile("wfi" ::: "memory");
+        }
+    }
+    mt_mark("input serial=%d mini=%d script=%d gpio=%d buttons=%s", serial, mini, script, gpio,
+            input_gpio_status_name(input_gpio_status()));
 }
 
 /*

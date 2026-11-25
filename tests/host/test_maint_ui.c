@@ -163,3 +163,26 @@ TEST(lines_fit)
     CHECK(strlen(mt_line_help()) < MT_MIN_COLS);
     CHECK(strlen(mt_line_sub()) < MT_MIN_COLS);
 }
+
+/* A SELECT held from the menu into the question is one press: it never answers twice. */
+TEST(a_held_key_answers_once)
+{
+    input_event_t seq[4];
+    unsigned i;
+    int answers = 0;
+
+    seq[0] = key(INPUT_KEY_SELECT, INPUT_REPEAT);
+    seq[1] = key(INPUT_KEY_SELECT, INPUT_REPEAT);
+    seq[2] = key(INPUT_KEY_SELECT, INPUT_RELEASE);
+    seq[3] = key(INPUT_KEY_BACK, INPUT_PRESS);
+    for (i = 0; i < 4; i++) {
+        int a = mt_answer(&seq[i]);
+
+        if (a != MT_ANS_NONE) {
+            answers++;
+            CHECK_EQ(i, 3u);
+            CHECK_EQ(a, MT_ANS_NO);
+        }
+    }
+    CHECK_EQ(answers, 1);
+}
