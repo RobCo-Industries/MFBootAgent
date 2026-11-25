@@ -244,24 +244,28 @@ TEST(timer_verdict)
     int32_t ppm = 1;
     uint32_t limit = 0;
 
-    CHECK_EQ(dg_timer_judge(1000000, 100, 100, 0, &ppm, &limit), DG_OK);
+    CHECK_EQ(dg_timer_judge(1000000, 100, 100, 100, 0, &ppm, &limit), DG_OK);
     CHECK_EQ(ppm, 0);
     CHECK_EQ(limit, 10000);
-    CHECK_EQ(dg_timer_judge(1010000, 100, 100, 0, &ppm, &limit), DG_OK);
+    CHECK_EQ(dg_timer_judge(1010000, 100, 100, 100, 0, &ppm, &limit), DG_OK);
     CHECK_EQ(ppm, 10000);
-    CHECK_EQ(dg_timer_judge(1010001, 100, 100, 0, &ppm, &limit), DG_FAIL);
-    CHECK_EQ(dg_timer_judge(989999, 100, 100, 0, &ppm, &limit), DG_FAIL);
+    CHECK_EQ(dg_timer_judge(1010001, 100, 100, 100, 0, &ppm, &limit), DG_FAIL);
+    CHECK_EQ(dg_timer_judge(989999, 100, 100, 100, 0, &ppm, &limit), DG_FAIL);
     CHECK_EQ(ppm, -10001);
-    CHECK_EQ(dg_timer_judge(997484, 100, 100, 0, &ppm, &limit), DG_OK);
+    CHECK_EQ(dg_timer_judge(997484, 100, 100, 100, 0, &ppm, &limit), DG_OK);
     CHECK_EQ(ppm, -2516);
-    CHECK_EQ(dg_timer_judge(1000000, 100, 100, 1, &ppm, &limit), DG_FAIL);
-    CHECK_EQ(dg_timer_judge(0, 100, 100, 0, &ppm, &limit), DG_FAIL);
+    CHECK_EQ(dg_timer_judge(1000000, 100, 100, 100, 1, &ppm, &limit), DG_FAIL);
+    CHECK_EQ(dg_timer_judge(0, 100, 100, 100, 0, &ppm, &limit), DG_FAIL);
     CHECK_EQ((uint32_t)ppm, (uint32_t)-1000000);
-    CHECK_EQ(dg_timer_judge(UINT64_MAX / 4, 100, 100, 0, &ppm, NULL), DG_FAIL);
+    CHECK_EQ(dg_timer_judge(UINT64_MAX / 4, 100, 100, 100, 0, &ppm, NULL), DG_FAIL);
     CHECK_EQ(ppm, INT32_MAX);
-    CHECK_EQ(dg_timer_judge(1000000, 0, 100, 0, &ppm, &limit), DG_SKIPPED);
-    CHECK_EQ(dg_timer_judge(1000000, 100, 0, 0, &ppm, &limit), DG_SKIPPED);
-    CHECK_EQ(dg_timer_judge(1000000, 1, 2000000, 0, NULL, NULL), DG_SKIPPED);
+    CHECK_EQ(dg_timer_judge(1000000, 0, 100, 100, 0, &ppm, &limit), DG_SKIPPED);
+    CHECK_EQ(dg_timer_judge(1000000, 100, 0, 0, 0, &ppm, &limit), DG_SKIPPED);
+    CHECK_EQ(dg_timer_judge(1000000, 1, 2000000, 2000000, 0, NULL, NULL), DG_SKIPPED);
+    /* A tick that runs right at a rate other than the one asked. */
+    CHECK_EQ(dg_timer_judge(2000000, 100, 100, 50, 0, &ppm, &limit), DG_FAIL);
+    CHECK_EQ(ppm, 0);
+    CHECK_EQ(dg_timer_judge(1000000, 100, 50, 100, 0, &ppm, &limit), DG_FAIL);
 }
 
 TEST(rng_verdict)

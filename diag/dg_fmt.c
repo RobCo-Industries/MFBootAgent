@@ -258,8 +258,8 @@ unsigned dg_percent(uint64_t done, uint64_t total)
     return (unsigned)(done * 100u / total);
 }
 
-int dg_timer_judge(uint64_t timer_us, uint32_t ticks, uint32_t hz, uint32_t missed,
-                   int32_t *ppm, uint32_t *limit_ppm)
+int dg_timer_judge(uint64_t timer_us, uint32_t ticks, uint32_t asked_hz, uint32_t hz,
+                   uint32_t missed, int32_t *ppm, uint32_t *limit_ppm)
 {
     uint64_t want;
     int64_t diff;
@@ -291,7 +291,7 @@ int dg_timer_judge(uint64_t timer_us, uint32_t ticks, uint32_t hz, uint32_t miss
     if (limit_ppm != NULL) {
         *limit_ppm = limit;
     }
-    if (missed != 0 || p > (int64_t)limit || p < -(int64_t)limit) {
+    if (missed != 0 || hz != asked_hz || p > (int64_t)limit || p < -(int64_t)limit) {
         return DG_FAIL;
     }
     return DG_OK;

@@ -77,8 +77,10 @@ void dg_test_timer(dg_run_t *r)
         timer_delay_ms(5);
     }
     missed = tick_missed() - missed0;
-    r->result = dg_timer_judge(t_last - t_first, TICKS, tick_hz(), missed, &ppm, &limit);
+    r->result = dg_timer_judge(t_last - t_first, TICKS, DG_TICK_HZ, tick_hz(), missed, &ppm,
+                               &limit);
     /* window_missed: the missed ticks between the first and the last tick, inside us. */
+    dg_keys(r, "asked_hz=%u", DG_TICK_HZ);
     dg_keys(r, "ticks=%u hz=%u us=%u ppm=%d limit=%u missed=%u window_missed=%u", TICKS,
             (unsigned)tick_hz(), (unsigned)(t_last - t_first), (int)ppm, (unsigned)limit,
             (unsigned)missed, (unsigned)(m_last - m_first));

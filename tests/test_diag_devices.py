@@ -98,7 +98,8 @@ def test_timer_and_rng(board, diag_image):
         m = run(vm, "timer")
         skip_if_timer_alone_starved(vm, m)
         assert m["result"] == "ok", vm.serial
-        assert (m["ticks"], m["hz"], m["limit"], m["missed"]) == ("100", "100", "10000", "0"), m
+        assert (m["ticks"], m["asked_hz"], m["hz"], m["limit"], m["missed"]) == \
+            ("100", "100", "100", "10000", "0"), m
         assert abs(int(m["ppm"])) <= 10000
 
 

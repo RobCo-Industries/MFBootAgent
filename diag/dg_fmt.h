@@ -206,10 +206,12 @@ unsigned dg_percent(uint64_t done, uint64_t total);
  * The timer test. `ticks` tick periods at `hz` took `timer_us` on the
  * system timer. Stores the error in parts per million in *ppm. The limit
  * is one tick period over the window: 1000000 / ticks ppm. A missed tick
- * fails. Returns DG_OK or DG_FAIL, or DG_SKIPPED when ticks or hz is 0.
+ * fails, and so does a tick rate hz other than the rate asked: a tick that
+ * keeps the wrong rate is a fault the ppm alone cannot see. Returns DG_OK
+ * or DG_FAIL, or DG_SKIPPED when ticks or hz is 0.
  */
-int dg_timer_judge(uint64_t timer_us, uint32_t ticks, uint32_t hz, uint32_t missed,
-                   int32_t *ppm, uint32_t *limit_ppm);
+int dg_timer_judge(uint64_t timer_us, uint32_t ticks, uint32_t asked_hz, uint32_t hz,
+                   uint32_t missed, int32_t *ppm, uint32_t *limit_ppm);
 
 /*
  * The RNG sanity check on n words: no word equals the one before, and
