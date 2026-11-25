@@ -57,8 +57,9 @@ def check_booted(vm, index, via):
     info = one(vm, "bootinfo", "testos")
     assert (info["prev_stage"], info["path"], info["cmdline"]) == ("2", path, cmdline), info
     assert info["part_lba"] == "2048"
-    # Alone, MFBootAgent cold-booted and built the block itself.
-    assert int(info["flags"], 16) == 1 << 2
+    # Alone, MFBootAgent cold-booted and built the block itself. A maintenance
+    # image always gets bit 1.
+    assert int(info["flags"], 16) == (1 << 2) | ((1 << 1) if kind == "maint" else 0)
     assert not events(vm, "error")
 
 
@@ -66,7 +67,7 @@ def test_markers_and_golden(board, mfboot_image, test_os, need_mtools, tmp_path)
     with alone(mfboot_image, board, card(tmp_path, os_files(test_os))) as vm:
         vm.wait_for(READY, timeout=TIMEOUT)
         assert order(vm) == ["boot", "handoff", "screen", "input", "selfcheck", "mount",
-                             "config", "entries", "ready"], vm.serial
+                             "maint_req", "config", "entries", "ready"], vm.serial
         cfg = one(vm, "config")
         assert (cfg["result"], cfg["entries"], cfg["default_found"]) == ("ok", "3", "1")
         ent = one(vm, "entries")

@@ -1,6 +1,6 @@
 # Boot flow
 
-MFBootAgent implements the second stage of [BOOT_PROTOCOL.md](https://github.com/RobCo-Industries/RobCo-Core/blob/25f36d82972858554274b6799c00d0259522d56b/docs/spec/BOOT_PROTOCOL.md) in RobCo-Core. That document is the contract. This page says what this stage does and which choices it made where the contract is open.
+MFBootAgent implements the second stage of [BOOT_PROTOCOL.md](https://github.com/RobCo-Industries/RobCo-Core/blob/c8220b2731b90d0446db636a4dc986a3ce1035cb/docs/spec/BOOT_PROTOCOL.md) in RobCo-Core. That document is the contract. This page says what this stage does and which choices it made where the contract is open.
 
 Every marker line has the form `@RC stage=bootagent ev=<event> ...` on the PL011.
 
@@ -43,6 +43,22 @@ So the menu only writes its own rows:
 
 The stage calls `sd_init()`, then `fs_mount_boot()` with two markers: `/ROBCO/BOOT.CFG` and `/ROBCO/UOS.SYS`, the default OS path. The first volume that holds either file is the boot volume. The stage does not use `boot_part_lba` from the boot info to choose: every stage applies the rule itself.
 
+The volume is mounted with write support. The stage writes exactly one thing on the card: the delete of `/ROBCO/MAINT.REQ`, see [Maintenance request](#maintenance-request). Every other file opens for reading only. `tests/test_card_writes.py` checks that no other writing call of the file system API is linked in.
+
+### Maintenance request
+
+Right after the mount, before `BOOT.CFG`, the menu and the countdown, the stage looks for `/ROBCO/MAINT.REQ` by its plain name. It runs no recovery of work names. `src/maintreq.c` holds the rules, `main.c` runs the calls.
+
+1. `fs_stat()`. A missing name, a folder or a failed call is no request, and the boot goes on as normal. A folder stays as it is.
+2. `fs_read_file()` into a 65-byte buffer. The line shows on the screen when it has 1 to 63 bytes from 0x20 to 0x7E, with one optional CR, LF or CRLF at the end. An empty file, a longer content, a failed read or any other byte shows no line. The request counts either way.
+3. `fs_unlink()`. The delete comes before any action, so the request is one-shot. `fs_unlink()` syncs the volume before it returns.
+4. `maint_req result=found rc=0`, or `result=clear_failed rc=<code>` when the delete failed. With no request, `result=none`, with `rc=0` for a missing name or a folder and the `fs_stat()` error code when the call failed. The marker prints once per boot in which the volume mounted. When nothing mounts, the stage halts and prints no `maint_req`.
+5. The menu shows with no countdown, then the maintenance screen opens with `maint_open why=request`. Its output rows show `MAINTENANCE REQUESTED` and the request line, if any. After a failed delete they add a notice: the file could not be deleted, with the code, and the request comes back at each start until the file is removed.
+
+The stage never loops. Closing the screen leaves the menu with no countdown, and no image boots without a key. A delete that keeps failing opens the screen again at each start.
+
+A request with `boot_flags` bit 1 received opens one screen, `why=request`. When the screen opens at start, for a request or a received bit 1, it drops the button events queued before it opened. Before that moment the stage has not polled input, so the queue holds only button events: the guard's press for a held button, its release and repeats, and buttons pressed while the card mounted. A held BACK does not close the screen and a held SELECT runs no action. The repeats and the release of a button still held when the screen opens do nothing too. The next press after the screen shows acts as usual. Keys from the console and the port reach the queue only once the screen polls input, so they always act.
+
 ### 3. BOOT.CFG
 
 The stage reads `/ROBCO/BOOT.CFG`, at most 4096 bytes. See [BOOT.CFG](#bootcfg).
@@ -68,17 +84,18 @@ The buttons use the example pins of BOARD_SUPPORT.md in RobCo-Core: UP 5, DOWN 6
 
 ### Maintenance screen
 
-It opens on `M`, on BACK from the buttons or the port, on the port's `maint` command, and at start when the boot info is trusted and has `boot_flags` bit 1 set. At start it takes the place of the countdown: the menu shows with no countdown, then the screen opens. Opening it any other way stops the countdown like a key. Closing it draws the menu again below it. The countdown does not start again.
+It opens on `M`, on BACK from the buttons or the port, on the port's `maint` command, at start after a [maintenance request](#maintenance-request), and at start when the boot info is trusted and has `boot_flags` bit 1 set. At start it takes the place of the countdown: the menu shows with no countdown, then the screen opens. Opening it any other way stops the countdown like a key. Closing it draws the menu again below it. The countdown does not start again.
 
 The port's `maint` goes through the input queue behind the keys sent before it, so the menu takes them in the order the port got them. `maint` then `key select` opens the screen, and SELECT acts inside it. `key select` then `maint` boots: the stage drops the request with `maint_drop why=boot` before the load, and a failed load does not open the screen later. When a key opens the screen before the request comes up, the stage drops the request with `maint_drop why=open`. A full queue answers `err busy`.
 
-The screen takes 18 rows below the text on screen, scrolling like the menu, and writes each of its rows in full. Rows: title, rule, five actions, the keys, then ten output rows. UP and DOWN move the bar, ENTER or SELECT runs the action, ESC, Q or BACK closes it.
+The screen takes 18 rows below the text on screen, scrolling like the menu, and writes each of its rows in full. Rows: title, six actions, the keys, then ten output rows. UP and DOWN move the bar, ENTER or SELECT runs the action, ESC, Q or BACK closes it.
 
 | Action | Does |
 |---|---|
 | Verify entries | Mounts the volume afresh, as in [Card changes](#card-changes), then runs the header read and `loader_load()` of a boot on every entry, without the jump. The OS slot is the work buffer, since nothing runs there yet. One row per entry, then the counts. A failed mount gives one `E02 IO` line. |
 | System | Board, memory, boot volume, trust, `boot_flags` received, version, RobCo-Core pin, screen path |
 | Configuration | The `config` result, default, timeout, entry count, and the `ignored`, `dup`, `bad` and `clamped` counts |
+| Start the maintenance image | Closes the screen and boots the maintenance image as an entry chosen by key: the path of the `MAINT` entry when `BOOT.CFG` has one, else `/ROBCO/MAINT.SYS`. The fallback menu has no `MAINT` entry, so it uses the fixed path. `choose` gives the entry's index, or `index=-1` for the fixed path. Entries count from 1. A missing or bad file is the usual load error under the menu. |
 | Reboot | `reboot source=screen`, then the watchdog, as the port's `reboot` |
 | Back to the boot menu | Closes the screen |
 
@@ -104,8 +121,15 @@ Before step 1 the stage mounts the volume afresh, as in [Card changes](#card-cha
    `loader_load()` has no hook between its header steps, so the stage reads the header itself before it calls the loader. An image with a wrong subtype fails with `bounds` even when its ABI or CRC is also wrong.
 2. `loader_load()` reads the file into the OS slot, `0x00400000` to `0x00FFFFFF`, 12 MiB. It runs the header steps again, then step 6, the CRC (`crc`).
 3. The stage unmounts the volume, writes `Starting <name>.` and moves the cursor to the next row.
-4. `bootinfo_build()` fills the block at `0x00100000` with stage id 2. The stage sets `boot_flags` bit 1 when the user opened the maintenance screen during this boot, keeps it when it arrived set in a trusted block, and clears it otherwise. Then it writes `boot_dev` (1, SD on EMMC), `boot_part_lba`, `boot_path` and `cmdline`, clears the fallback flag and reseals the block. Other flags stay as the previous stage set them.
+4. `bootinfo_build()` fills the block at `0x00100000` with stage id 2. The stage sets or clears `boot_flags` bits 1 and 3 by the rule below, whatever it received, with the library's `ROBCO_BOOT_MAINT` and `ROBCO_BOOT_MAINT_REQ`. Then it writes `boot_dev` (1, SD on EMMC), `boot_part_lba`, `boot_path` and `cmdline`, clears the fallback flag and reseals the block. Other flags stay as the previous stage set them.
 5. `robco_handoff()` enters the image with r2 set to the firmware blob copy.
+
+| Bit | Set when, this boot | Else |
+|---|---|---|
+| 1 | A request was found, the maintenance screen opened, by any road or by a trusted bit 1 received, or the image is a maintenance image, subtype 2, from the menu, the screen or a key the port sent | Clear |
+| 3 | A request was found, `found` or `clear_failed`, whatever entry boots | Clear |
+
+So `MAINT.SYS` always gets bit 1. UOS after a request gets bits 1 and 3: they say what was asked, not what started.
 
 ### Card changes
 
@@ -115,7 +139,7 @@ The SD slot has no card detect, so the stage cannot see a card change. Verify en
 2. On a failure, `sd_init()` and then `fs_unmount("sd")` again. A card that answers lets the sync pass. When `sd_init()` fails, the step is `sd`, with its code.
 3. `sd_init()` and `fs_mount_boot()` by the boot rule.
 
-After any failure, `sd_deinit()` leaves the driver not ready. A volume still mounted then fails every read with `BLK_ERR_NOMEDIA`, so it never reads another card. The next call starts from step 1 and recovers once a card answers. RobCo-Core has no call that drops a volume without the sync. Dropping it loses nothing: the stage opens files for reading only.
+After any failure, `sd_deinit()` leaves the driver not ready. A volume still mounted then fails every read with `BLK_ERR_NOMEDIA`, so it never reads another card. The next call starts from step 1 and recovers once a card answers. RobCo-Core has no call that drops a volume without the sync. Dropping it loses nothing: the one write, the delete of the request, syncs before it returns, and every other file opens for reading only.
 
 `BOOT.CFG` is read once, at start. A card change keeps the menu entries and the Configuration page from the start. Verify entries checks those entries against the card in the slot, and a boot loads the entry's path from it. `boot_part_lba` comes from the mount the image loaded from. The System page shows the volume mounted now with its first block and size. When the last mount failed, it shows `not mounted` with the failed step and its code, then a `Last good` line: the last volume that mounted, or `none since power-on`. Re-reading `BOOT.CFG` would change the menu under the user, so a new card's entries need a reboot.
 
@@ -139,28 +163,29 @@ In the order they print.
 | `input` | `serial mini script gpio buttons repeat live` | Return codes of the input back ends and of `input_set_repeat()`. `buttons` is the GPIO status name, such as `active` or `disabled_stuck`. `live` lists the back ends that deliver events, such as `serial,script`. |
 | `selfcheck` | `rc size` | Result of `rimg_self_check()` |
 | `mount` | `lba blocks` | The boot volume mounted |
+| `maint_req` | `result rc` | The [maintenance request](#maintenance-request) check: `none`, `found` or `clear_failed`, and the delete's code |
 | `config` | `result path`, then `entries ignored dup unknown bad clamped default_found nopath`, or `why` | `result` is `ok`, `missing` or `bad`. With `bad`, `why` is `read` with `rc`, `syntax` with `line`, or `empty` with the counters except `default_found`. See [Counters](#counters). |
 | `entries` | `count default timeout` | The menu in use. `timeout` is `none` when the menu waits. |
 | `countdown` | `state`, `seconds` | `state=start` when the menu shows with a timeout above 0, `state=stopped` when a key stops it |
 | `ready` | | The menu shows |
 | `select` | `index name` | The selection moved. `index` counts from 1. |
-| `choose` | `index name path via` | An entry is to boot. `via` is `key` or `timeout`. |
+| `choose` | `index name path via` | An entry is to boot. `via` is `key` or `timeout`. The screen's Start the maintenance image gives `via=key`, and `index=-1` with no `MAINT` entry. |
 | `error` | `code path name`, or `code path what rc` | A load failed, or `code=io` with `what=sd` or `what=fat` |
 | `load` | `path size crc addr name subtype` | The image loaded and passed every check |
 | `bootinfo` | `flags caps dev part_lba path cmdline_len scheme cx cy` | The boot info as handed over |
 | `jump` | `entry name` | Last line before the handoff |
 | `idle` | | The stage stopped and waits |
 | `reboot` | `source` | `key`, `maint` or `screen` |
-| `maint_open` | `why` | The maintenance screen opened: `key`, `button`, `port` or `flag` |
+| `maint_open` | `why` | The maintenance screen opened: `key`, `button`, `port`, `flag` or `request` |
 | `maint_drop` | `why` | The port's `maint` was answered `ok` but did not open the screen: `boot` when a boot was chosen first, `open` when the screen was already open |
-| `maint_action` | `name` | An action ran: `verify`, `system`, `config`, `reboot` or `back` |
+| `maint_action` | `name` | An action ran: `verify`, `system`, `config`, `start`, `reboot` or `back` |
 | `verify_entry` | `index name path result` | One entry checked. `result` is `ok` or the `error` code. |
 | `verify_done` | `result entries good failed`, with `what rc` for `result=io` | The verify action ended. `result` is `ok` or `io`. |
 | `maint_close` | | The screen closed |
 
 ## Error codes
 
-The codes are the loader's, from [IMAGE_FORMAT.md](https://github.com/RobCo-Industries/RobCo-Core/blob/25f36d82972858554274b6799c00d0259522d56b/docs/spec/IMAGE_FORMAT.md). The screen line is `ERROR E<code> <NAME>: <entry>: <reason>`.
+The codes are the loader's, from [IMAGE_FORMAT.md](https://github.com/RobCo-Industries/RobCo-Core/blob/c8220b2731b90d0446db636a4dc986a3ce1035cb/docs/spec/IMAGE_FORMAT.md). The screen line is `ERROR E<code> <NAME>: <entry>: <reason>`.
 
 | Code | `code=` | Reason on screen |
 |---|---|---|
@@ -235,7 +260,7 @@ An entry header is `entry`, one or more spaces or tabs, then the name. The stage
 
 ### Other sections and whole-file cases
 
-- Unknown keys, keys before the first section and keys in unknown sections count as `unknown`. `[bios]` belongs to RETROS-BIOS and is skipped without a count.
+- Unknown keys, keys before the first section and keys in unknown sections count as `unknown`. `[bios]` belongs to RETROS-BIOS and `[maint]` to the maintenance image. Both are skipped without a count.
 - A line that does not parse makes the whole file bad, `why=syntax`. A `cmdline` over 127 characters is past the INI reader's value limit, so it does the same.
 - A file that parses but fills no slot is bad too, `why=empty`. An empty file is one of them.
 - A missing file, a read error or a bad file gives the menu with one entry, `UOS` at `/ROBCO/UOS.SYS`, and no timeout.
@@ -264,7 +289,11 @@ An entry header is `entry`, one or more spaces or tabs, then the name. The stage
 | A file that parses with no usable entry | Treated like a bad file: the one default entry |
 | A boot agent or other non-OS subtype | Refused with code 6, `bounds`, before the ABI and CRC steps |
 | Boot volume markers | `/ROBCO/BOOT.CFG` and `/ROBCO/UOS.SYS` |
-| `boot_flags` after this stage | Fallback bit cleared. Bit 1 set when the user opened the maintenance screen or it arrived set in a trusted block, clear otherwise. Other bits kept. |
+| `boot_flags` after this stage | Fallback bit cleared. Bits 1 and 3 by the spec's rule, see [5. Load and handoff](#5-load-and-handoff). Other bits kept. |
+| `fs_stat()` of `MAINT.REQ` fails with an error other than a missing name | No request and a normal boot, with the error in the marker: `maint_req result=none rc=<code>`. `rc=0` only for a missing name or a folder. The spec does not name this case. |
+| `choose` for the fixed path `/ROBCO/MAINT.SYS` | `index=-1 name=MAINT`. Entries count from 1, so neither 0 nor -1 is a real index, and -1 reads plainly as none. The spec does not name the index. |
+| A button held at start when a request or a received bit 1 opens the screen | The screen drops every button event queued before it opened, and the repeats and release of a button held since then. BACK does not close it and SELECT runs no action, whatever `why` is. Console and port keys always act. The marker keeps `why=request` or `why=flag`. |
+| `MAINT` entry name | Matched in any case, as `BOOT.CFG` compares entry names |
 | Markers of the maintenance screen | `maint_open`, `maint_drop`, `maint_action`, `verify_entry`, `verify_done`, `maint_close`, and `source=screen` for `reboot` |
 | `input` keys | The spec's keys, plus `gpio buttons repeat live` |
 | Which BACK opens the screen | BACK from the buttons or the port. ESC on the PL011 only stops the countdown, so ESC can close the screen without opening it again. |

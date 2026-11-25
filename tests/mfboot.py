@@ -134,9 +134,13 @@ def alone(mfboot_image, board, sd=None, extra_args=None, qtest=False, gpio_high=
 
 
 @contextlib.contextmanager
-def after(first_image, board, sd, extra_args=None):
-    """Boots a first stage from 0x8000 that loads MFBootAgent from the card."""
-    with boot(first_image, board, sd=sd, serial2=True, extra_args=extra_args) as vm:
+def after(first_image, board, sd, extra_args=None, qtest=False, gpio_high=()):
+    """Boots a first stage from 0x8000 that loads MFBootAgent from the card.
+
+    qtest and gpio_high go to the harness's boot(), as for alone().
+    """
+    with boot(first_image, board, sd=sd, serial2=True, extra_args=extra_args,
+              qtest=qtest, gpio_high=gpio_high) as vm:
         yield vm
 
 

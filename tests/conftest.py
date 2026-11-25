@@ -58,6 +58,15 @@ def mfboot(mfboot_image):
 
 
 @pytest.fixture(scope="session")
+def mfboot_test_image(mfboot_image, build_dir):
+    """build/mfbtest/mfboot.img, built by `make all` with MFB_TEST=1: with LEFT
+    held at power-on, the start screen waits for its release. Not shipped."""
+    path = os.path.join(build_dir, "mfbtest", "mfboot.img")
+    assert os.path.isfile(path), path
+    return path
+
+
+@pytest.fixture(scope="session")
 def test_os(mfboot_image, build_dir):
     """The bytes of the test operating images: {"uos": ..., "maint": ..., "diag": ...}."""
     out = {}
