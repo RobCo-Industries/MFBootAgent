@@ -6,7 +6,7 @@ import re
 import struct
 import tempfile
 
-import timing_skips
+from harness import hosttiming
 
 from harness.boot import boot, parse_markers
 
@@ -149,7 +149,7 @@ def skip_if_timer_starved(vm, want):
     starved = timer_starved(timer[0]) if len(timer) == 1 else None
     expect = [(n, "fail" if n == "timer" else r) for n, r in want]
     assert starved is not None and got == expect, vm.serial
-    timing_skips.skip(starved)
+    hosttiming.skip(starved)
 
 
 def skip_if_timer_alone_starved(vm, m):
@@ -161,7 +161,7 @@ def skip_if_timer_alone_starved(vm, m):
         return
     starved = timer_starved(m)
     assert starved is not None, vm.serial
-    timing_skips.skip(starved)
+    hosttiming.skip(starved)
 
 
 def wait_state(vm, phase, timeout=TIMEOUT):

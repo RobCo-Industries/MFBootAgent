@@ -10,12 +10,29 @@ sys.path.insert(0, os.path.join(CORE, "tests"))
 # test_console: the console font and colour schemes, to render expected text.
 sys.path.insert(0, os.path.join(CORE, "tests", "target"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-pytest_plugins = ["harness.plugin", "timing_skips"]
+
+import importlib.util  # noqa: E402
 
 import pytest  # noqa: E402
 
 
+pytest_plugins = ["harness.plugin"]
+
+# The library's host timing skip limit, per board, from its target
+# conftest. Its file name clashes with this one, so it loads by path and
+# this conftest calls its two hooks.
+_spec = importlib.util.spec_from_file_location(
+    "robco_timing_skips", os.path.join(CORE, "tests", "target", "conftest.py"))
+timing_skips = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(timing_skips)
+
+
+def pytest_configure(config):
+    timing_skips.pytest_configure(config)
+
+
 def pytest_addoption(parser):
+    timing_skips.pytest_addoption(parser)
     parser.addoption("--build-dir", default="build",
                      help="build directory, as BUILD in the Makefile")
     parser.addoption("--retros-img", default=None,
