@@ -79,13 +79,22 @@ def test_video_abort(board, diag_image):
 def test_audio_through_trace(board, diag_image):
     with alone(diag_image, board) as vm:
         m = run(vm, "audio")
-        assert m["result"] == "ok", vm.serial
         # QEMU does not model the PWM: the library falls back to the trace backend.
-        assert (m["backend"], m["tones"], m["notes"]) == ("trace", "5", "6"), m
+        # The calls run, but no sound can come out, so the row reads ABSENT.
+        assert m["result"] == "absent", vm.serial
+        assert (m["backend"], m["init"], m["tones"], m["notes"]) == ("trace", "0", "5", "6"), m
+        # The probe found no working PWM: its registers abort or drop writes.
+        assert m["probe"] in ("abort", "ignored"), m
+        assert (m["why"], m["output"]) == ("no_pwm", "none"), m
         tones = [a["hz"] for a in events(vm, "audio") if a["op"] == "tone"]
         assert tones == SWEEP + TUNE, tones
         stops = [a for a in events(vm, "audio") if a["op"] == "stop"]
         assert len(stops) >= len(SWEEP) + 1, stops
+        state(vm)
+        _, rows = dump(vm)
+        assert rows[7].startswith("  4  AUDIO "), rows
+        assert rows[7].rstrip().endswith("ABSENT   No sound output found."), rows
+        assert rows[17].startswith("AUDIO: ABSENT. No sound output found."), rows
 
 
 def test_timer_and_rng(board, diag_image):

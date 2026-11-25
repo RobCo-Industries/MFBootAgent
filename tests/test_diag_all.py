@@ -15,15 +15,19 @@ def results(vm):
     return [(m["name"], m["result"]) for m in events(vm, "diag")]
 
 
+# QEMU has no PWM: the audio test plays through the trace backend and reads ABSENT.
+FULL = {"input": "skipped", "audio": "absent"}
+
+
 def test_all_with_every_device(board, diag_image, good_card):
     with alone(diag_image, board, sd=good_card, devices=RTC + X0 + X1) as vm:
         t0 = time.monotonic()
         done = run_all(vm)
         assert time.monotonic() - t0 < LIMIT_S
-        skip_if_timer_starved(vm, [(t, "skipped" if t == "input" else "ok") for t in TESTS])
+        skip_if_timer_starved(vm, [(t, FULL.get(t, "ok")) for t in TESTS])
         assert (done["ok"], done["fail"], done["absent"], done["skipped"]) == \
-            ("8", "0", "0", "1"), vm.serial
-        assert results(vm) == [(t, "skipped" if t == "input" else "ok") for t in TESTS]
+            ("7", "0", "1", "1"), vm.serial
+        assert results(vm) == [(t, FULL.get(t, "ok")) for t in TESTS]
         why = {m["name"]: m.get("why") for m in events(vm, "diag")}
         assert why["input"] == "interactive"
         mem = [m for m in events(vm, "diag") if m["name"] == "mem"][0]
@@ -33,20 +37,25 @@ def test_all_with_every_device(board, diag_image, good_card):
         assert len(events(vm, "video_pattern")) == 8
         state(vm)
         _, rows = dump(vm)
-        assert rows[17] == "Run all: 8 OK, 0 FAILED, 0 ABSENT, 1 SKIPPED.", rows
+        assert rows[17] == "Run all: 7 OK, 0 FAILED, 1 ABSENT, 1 SKIPPED.", rows
+        assert rows[7].startswith("  4  AUDIO "), rows
+        assert rows[7].rstrip().endswith("ABSENT   No sound output found."), rows
         assert rows[8].startswith("  5  INPUT     Live view of every key       SKIPPED  "), rows
-        assert rows[13].startswith("  A  RUN ALL   Every test without a person  OK       8 ok"), rows
+        # An ABSENT row among OK rows leaves the whole run OK.
+        assert rows[13].startswith("  A  RUN ALL   Every test without a person  OK       7 ok"), rows
 
 
 def test_all_on_a_bare_board(board, diag_image):
     with alone(diag_image, board) as vm:
         done = run_all(vm)
-        bare = {"sd": "absent", "rtc": "absent", "expander": "absent", "input": "skipped"}
+        bare = {"sd": "absent", "audio": "absent", "rtc": "absent", "expander": "absent",
+                "input": "skipped"}
         skip_if_timer_starved(vm, [(t, bare.get(t, "ok")) for t in TESTS])
         assert (done["ok"], done["fail"], done["absent"], done["skipped"]) == \
-            ("5", "0", "3", "1"), vm.serial
+            ("4", "0", "4", "1"), vm.serial
         got = dict(results(vm))
-        assert (got["sd"], got["rtc"], got["expander"]) == ("absent", "absent", "absent"), got
+        assert (got["sd"], got["audio"], got["rtc"], got["expander"]) == \
+            ("absent", "absent", "absent", "absent"), got
 
 
 def test_abort_stops_the_rest(board, diag_image, good_card):

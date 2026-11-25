@@ -3,9 +3,12 @@
  * It reports the backend the library chose: "pwm" on hardware, "trace"
  * where the PWM does not answer, as in QEMU. The trace backend prints
  * one "audio" marker per call, which proves the calls but not a sound.
- * Each sound has a bound: its own length plus WAIT_SLACK_MS. When
- * audio_init() reports that the PWM failed and the trace backend took
- * over, the test plays through the trace and then fails.
+ * Each sound has a bound: its own length plus WAIT_SLACK_MS. Errors from
+ * the driver fail the test. A clean run gets its verdict from
+ * dg_audio_judge(): OK on the PWM backend, ABSENT on the trace backend
+ * when no PWM was found, FAILED when the PWM failed and the trace took
+ * over. OK means the PWM registers answered and the calls ran in time;
+ * a person must listen to know that sound came out.
  */
 
 #include <stdint.h>
@@ -71,6 +74,7 @@ void dg_test_audio(dg_run_t *r)
     unsigned i;
     int rc;
     int w;
+    int v;
 
     if (!inited) {
         init_rc = audio_init();
@@ -78,7 +82,7 @@ void dg_test_audio(dg_run_t *r)
     }
     dg_keys(r, "backend=%s probe=%s init=%d", audio_backend(),
             audio_probe_name(audio_probe_result()), init_rc);
-    if (init_rc != 0 && init_rc != AUDIO_ERR_NO_PWM && init_rc != AUDIO_ERR_PIN) {
+    if (dg_audio_start(init_rc) == DG_AUD_NOINIT) {
         r->result = DG_FAIL;
         dg_text(r, DG_TX_AUD_INIT, init_rc);
         return;
@@ -115,12 +119,17 @@ void dg_test_audio(dg_run_t *r)
         return;
     }
     dg_keys(r, "tones=%u notes=%u", (unsigned)TONES, (unsigned)NOTES);
-    if (init_rc != 0) {
+    v = dg_audio_judge(init_rc, k_strcmp(audio_backend(), "trace") == 0);
+    r->result = dg_audio_result(v);
+    if (v == DG_AUD_FELLBACK) {
         /* PWM failed and the trace backend played: the calls ran, no sound did. */
-        r->result = DG_FAIL;
+        dg_keys(r, "why=pwm_failed");
         dg_text(r, DG_TX_AUD_PWM, init_rc);
-        return;
+    } else if (v == DG_AUD_TRACE) {
+        /* No PWM found: the trace backend played, so no sound could come out. */
+        dg_keys(r, "why=no_pwm output=none");
+        dg_text(r, DG_TX_AUD_NONE);
+    } else {
+        dg_text(r, DG_TX_AUD_OK, audio_backend(), (unsigned)TONES, (unsigned)NOTES);
     }
-    r->result = DG_OK;
-    dg_text(r, DG_TX_AUD_OK, audio_backend(), (unsigned)TONES, (unsigned)NOTES);
 }
