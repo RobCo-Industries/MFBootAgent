@@ -51,6 +51,7 @@ DIAG_PURE_SRCS := \
 # The maintenance image's pure files, in maint/: the host tests link them too.
 MAINT_PURE_SRCS := \
               maint/mt_cfg.c \
+              maint/mt_clock.c \
               maint/mt_ui.c \
               maint/mt_view.c \
               maint/mt_walk.c \
