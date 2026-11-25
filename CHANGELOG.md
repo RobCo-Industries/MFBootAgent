@@ -28,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - RobCo-Core is pinned at `25f36d8`. Its harness parks the spare cores of QEMU's raspi3b, and its host warning check compiles at CI's flags.
+- RobCo-Core moved to `c8220b2`.
 - The host timing skip limit is RobCo-Core's, per board. `tests/timing_skips.py` is gone. `--timing-skips-max` now counts per board.
 - After a trusted handoff the stage adopts the screen with `fb_adopt()` and `console_adopt()`. It falls back to `fb_init()` and `console_init()`. The `screen` marker adds `path`, `adopt_fb` and `adopt_console`.
 - The menu writes every one of its rows in full, and only its own rows.
