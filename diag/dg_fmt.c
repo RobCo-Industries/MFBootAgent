@@ -331,6 +331,21 @@ int dg_rng_judge(const uint32_t *w, uint32_t n, uint32_t *repeats, uint32_t *bit
     return DG_OK;
 }
 
+int dg_video_judge(const dg_vmode_t *mode, const dg_vmode_t *fb)
+{
+    if (mode->w != fb->w || mode->h != fb->h || mode->depth != fb->depth ||
+        mode->pitch != fb->pitch) {
+        return DG_VID_MODE;
+    }
+    if (mode->order != fb->order) {
+        return DG_VID_ORDER;
+    }
+    if (mode->has_offset && (mode->x_off != 0 || mode->y_off != 0)) {
+        return DG_VID_OFFSET;
+    }
+    return DG_VID_OK;
+}
+
 int dg_x_attach(uint8_t pol, int (*attach)(unsigned, uint8_t), unsigned chip, uint8_t addr,
                 int *rc)
 {

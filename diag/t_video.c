@@ -2,8 +2,10 @@
  * The video test. Reads the mode from the mailbox, then draws full-screen
  * patterns. Alone, a key steps to the next pattern and ESC stops; each
  * pattern waits at most STEP_MAX_MS. In "run all" each pattern shows for
- * ALL_MS. Only a person can judge the picture: "ok" means the mode reads
- * back and every pattern was drawn.
+ * ALL_MS. The test reads no pixel back. Only a person can judge the
+ * picture: "ok" means the mode reads back, matches the framebuffer in
+ * use in size, depth, pitch and pixel order, shows the buffer from its
+ * start, and every pattern was drawn.
  */
 
 #include <stdint.h>
@@ -25,37 +27,82 @@ static const char *const names[P_COUNT] = {
     "bars", "grid", "ramp", "red", "green", "blue", "white", "black",
 };
 
-/* Mailbox property tags. */
+/* Mailbox property tags, all "get": none changes the mode. */
 #define TAG_PHYS_WH 0x00040003u
+#define TAG_VIRT_WH 0x00040004u
 #define TAG_DEPTH   0x00040005u
 #define TAG_ORDER   0x00040006u
+#define TAG_ALPHA   0x00040007u
 #define TAG_PITCH   0x00040008u
+#define TAG_OFFSET  0x00040009u
+/* Set in a tag's code word when the firmware answered that tag. */
+#define TAG_ANSWERED 0x80000000u
 
 typedef struct {
-    uint32_t w, h, depth, order, pitch;
+    dg_vmode_t v;
+    int has_virt, has_alpha;
+    uint32_t vw, vh, alpha;
 } mode_t_;
+
+/* Appends a tag with n value words. Returns the index of its first value. */
+static unsigned tag(uint32_t *b, unsigned *i, uint32_t id, unsigned n)
+{
+    unsigned at;
+
+    b[(*i)++] = id;
+    b[(*i)++] = n * 4u;
+    b[(*i)++] = 0;
+    at = *i;
+    while (n-- > 0) {
+        b[(*i)++] = 0;
+    }
+    return at;
+}
+
+static int answered(const uint32_t *b, unsigned at)
+{
+    return (b[at - 1u] & TAG_ANSWERED) != 0;
+}
 
 static int read_mode(mode_t_ *m)
 {
-    static uint32_t b[20] __attribute__((aligned(64)));
-    unsigned i = 0;
+    static uint32_t b[48] __attribute__((aligned(64)));
+    unsigned i = 2;
+    unsigned wh, virt, depth, order, alpha, pitch, off;
 
-    b[i++] = sizeof(b);
-    b[i++] = 0;
-    b[i++] = TAG_PHYS_WH; b[i++] = 8; b[i++] = 0; b[i++] = 0; b[i++] = 0;
-    b[i++] = TAG_DEPTH;   b[i++] = 4; b[i++] = 0; b[i++] = 0;
-    b[i++] = TAG_ORDER;   b[i++] = 4; b[i++] = 0; b[i++] = 0;
-    b[i++] = TAG_PITCH;   b[i++] = 4; b[i++] = 0; b[i++] = 0;
-    b[i++] = 0;
+    k_memset(b, 0, sizeof(b));
+    b[0] = sizeof(b);
+    wh = tag(b, &i, TAG_PHYS_WH, 2);
+    virt = tag(b, &i, TAG_VIRT_WH, 2);
+    depth = tag(b, &i, TAG_DEPTH, 1);
+    order = tag(b, &i, TAG_ORDER, 1);
+    alpha = tag(b, &i, TAG_ALPHA, 1);
+    pitch = tag(b, &i, TAG_PITCH, 1);
+    off = tag(b, &i, TAG_OFFSET, 2);
+    b[i] = 0;
     if (mbox_call(b) != 0) {
         return -1;
     }
-    m->w = b[5];
-    m->h = b[6];
-    m->depth = b[10];
-    m->order = b[14];
-    m->pitch = b[18];
+    k_memset(m, 0, sizeof(*m));
+    m->v.w = b[wh];
+    m->v.h = b[wh + 1u];
+    m->v.depth = b[depth];
+    m->v.order = b[order];
+    m->v.pitch = b[pitch];
+    m->v.has_offset = answered(b, off);
+    m->v.x_off = b[off];
+    m->v.y_off = b[off + 1u];
+    m->has_virt = answered(b, virt);
+    m->vw = b[virt];
+    m->vh = b[virt + 1u];
+    m->has_alpha = answered(b, alpha);
+    m->alpha = b[alpha];
     return 0;
+}
+
+static const char *order_name(uint32_t order)
+{
+    return order == FB_ORDER_RGB ? "rgb" : order == FB_ORDER_BGR ? "bgr" : "other";
 }
 
 static void draw(unsigned p, uint32_t w, uint32_t h)
@@ -131,6 +178,7 @@ void dg_test_video(dg_run_t *r)
 {
     const fb_info_t *fb = fb_get();
     mode_t_ m;
+    dg_vmode_t want;
     unsigned p;
     int rc;
 
@@ -147,14 +195,45 @@ void dg_test_video(dg_run_t *r)
         dg_text(r, DG_TX_VID_MBOX);
         return;
     }
-    dg_keys(r, "width=%u height=%u depth=%u pitch=%u order=%s", (unsigned)m.w, (unsigned)m.h,
-            (unsigned)m.depth, (unsigned)m.pitch, m.order == 1 ? "rgb" : "bgr");
-    if (m.w != fb->width || m.h != fb->height || m.depth != fb->depth || m.pitch != fb->pitch) {
+    dg_keys(r, "width=%u height=%u depth=%u pitch=%u order=%s", (unsigned)m.v.w,
+            (unsigned)m.v.h, (unsigned)m.v.depth, (unsigned)m.v.pitch, order_name(m.v.order));
+    /* Information only: see "What each test checks" in docs/DIAG.md. */
+    if (m.has_virt) {
+        dg_keys(r, "virt=%ux%u", (unsigned)m.vw, (unsigned)m.vh);
+    }
+    if (m.v.has_offset) {
+        dg_keys(r, "offset=%u,%u", (unsigned)m.v.x_off, (unsigned)m.v.y_off);
+    }
+    if (m.has_alpha) {
+        dg_keys(r, "alpha=%u", (unsigned)m.alpha);
+    }
+    k_memset(&want, 0, sizeof(want));
+    want.w = fb->width;
+    want.h = fb->height;
+    want.depth = fb->depth;
+    want.pitch = fb->pitch;
+    want.order = fb->order;
+    switch (dg_video_judge(&m.v, &want)) {
+    case DG_VID_MODE:
         r->result = DG_FAIL;
-        dg_keys(r, "why=mismatch fb_width=%u fb_height=%u", (unsigned)fb->width,
-                (unsigned)fb->height);
+        dg_keys(r, "why=mismatch fb_width=%u fb_height=%u fb_depth=%u fb_pitch=%u",
+                (unsigned)fb->width, (unsigned)fb->height, (unsigned)fb->depth,
+                (unsigned)fb->pitch);
         dg_text(r, DG_TX_VID_MODE);
         return;
+    case DG_VID_ORDER:
+        r->result = DG_FAIL;
+        dg_keys(r, "why=order mode_order=%u fb_order=%u", (unsigned)m.v.order,
+                (unsigned)fb->order);
+        dg_text(r, DG_TX_VID_ORDER);
+        return;
+    case DG_VID_OFFSET:
+        r->result = DG_FAIL;
+        dg_keys(r, "why=offset");
+        dg_text(r, DG_TX_VID_OFFSET);
+        return;
+    default:
+        break;
     }
     for (p = 0; p < P_COUNT; p++) {
         draw(p, fb->width, fb->height);

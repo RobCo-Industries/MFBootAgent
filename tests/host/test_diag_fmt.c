@@ -304,6 +304,37 @@ TEST(rng_verdict)
     CHECK_EQ(dg_rng_judge(NULL, 1024, &rep, &bits), DG_SKIPPED);
 }
 
+TEST(video_verdict)
+{
+    dg_vmode_t fb = { 640, 480, 32, 2560, 1, 0, 0, 0 };
+    dg_vmode_t m = fb;
+
+    CHECK_EQ(dg_video_judge(&m, &fb), DG_VID_OK);
+    /* An adopted framebuffer drawn in RGB while the firmware scans BGR. */
+    m.order = 0;
+    CHECK_EQ(dg_video_judge(&m, &fb), DG_VID_ORDER);
+    m.order = 2;
+    CHECK_EQ(dg_video_judge(&m, &fb), DG_VID_ORDER);
+    m = fb;
+    m.pitch = 2564;
+    CHECK_EQ(dg_video_judge(&m, &fb), DG_VID_MODE);
+    m = fb;
+    m.depth = 16;
+    m.order = 0;
+    CHECK_EQ(dg_video_judge(&m, &fb), DG_VID_MODE);
+    /* The offset counts only when the firmware gave it. */
+    m = fb;
+    m.y_off = 480;
+    CHECK_EQ(dg_video_judge(&m, &fb), DG_VID_OK);
+    m.has_offset = 1;
+    CHECK_EQ(dg_video_judge(&m, &fb), DG_VID_OFFSET);
+    m.y_off = 0;
+    m.x_off = 1;
+    CHECK_EQ(dg_video_judge(&m, &fb), DG_VID_OFFSET);
+    m.x_off = 0;
+    CHECK_EQ(dg_video_judge(&m, &fb), DG_VID_OK);
+}
+
 /*
  * Every detail text with its worst-case values fits the menu row. The
  * worst cases: 1024 MiB of RAM, 999 s, 65536 blocks read and bad, 99
@@ -342,6 +373,8 @@ static void worst_texts(void)
     T(DG_TX_VID_NOFB);
     T(DG_TX_VID_MBOX);
     T(DG_TX_VID_MODE);
+    T(DG_TX_VID_ORDER);
+    T(DG_TX_VID_OFFSET);
     T(DG_TX_VID_OK, 4096u, 4096u, 8u);
     T(DG_TX_AUD_INIT, -99);
     T(DG_TX_AUD_PWM, -99);

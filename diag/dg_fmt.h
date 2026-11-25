@@ -93,6 +93,8 @@ int dg_counts_result(const dg_counts_t *c, int stopped);
 #define DG_TX_VID_NOFB      "No screen."
 #define DG_TX_VID_MBOX      "Mailbox does not answer."
 #define DG_TX_VID_MODE      "Mode differs from screen"
+#define DG_TX_VID_ORDER     "Pixel order differs"
+#define DG_TX_VID_OFFSET    "Screen offset is not 0"
 #define DG_TX_VID_OK        "%ux%u, %u to judge"
 /* audio */
 #define DG_TX_AUD_INIT      "Audio does not start: %d."
@@ -216,5 +218,25 @@ int dg_timer_judge(uint64_t timer_us, uint32_t ticks, uint32_t hz, uint32_t miss
  * DG_FAIL; DG_SKIPPED for n below 2.
  */
 int dg_rng_judge(const uint32_t *w, uint32_t n, uint32_t *repeats, uint32_t *bits);
+
+/*
+ * The video test: the mode the mailbox reads against the framebuffer in
+ * use. Width, height, depth and pitch must match, then the pixel order:
+ * fb_rgb() draws with the framebuffer's order, so a different firmware
+ * order swaps red and blue. Then the virtual offset must be 0, when the
+ * mailbox gave it (has_offset), or the screen shows another part of the
+ * buffer than the test draws. Returns DG_VID_*, the first that differs.
+ */
+typedef struct {
+    uint32_t w, h, depth, pitch, order;
+    int has_offset;
+    uint32_t x_off, y_off;
+} dg_vmode_t;
+
+#define DG_VID_OK       0
+#define DG_VID_MODE     1
+#define DG_VID_ORDER    2
+#define DG_VID_OFFSET   3
+int dg_video_judge(const dg_vmode_t *mode, const dg_vmode_t *fb);
 
 #endif

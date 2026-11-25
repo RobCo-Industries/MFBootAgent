@@ -49,6 +49,9 @@ def test_video_patterns_step_by_key(board, diag_image, tmp_path):
         assert m["result"] == "ok", vm.serial
         assert (m["width"], m["height"], m["depth"], m["pitch"]) == ("640", "480", "32", "2560")
         assert (m["patterns"], m["judge"]) == ("8", "person"), m
+        # The pixel order and offset are part of the verdict; virt and alpha only report.
+        assert (m["order"], m.get("offset"), m.get("virt"), m.get("alpha")) == \
+            ("rgb", "0,0", "640x480", "2"), m
         # The menu comes back in full.
         state(vm)
         _, rows = dump(vm)
