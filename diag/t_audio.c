@@ -55,11 +55,11 @@ static void stopped(dg_run_t *r, int w, const char *step)
     if (w == 1) {
         r->result = DG_SKIPPED;
         dg_keys(r, "why=abort step=%s", step);
-        dg_text(r, "Stopped.");
+        dg_text(r, DG_TX_STOPPED);
     } else {
         r->result = DG_FAIL;
         dg_keys(r, "why=timeout step=%s", step);
-        dg_text(r, "The %s did not end in time.", step);
+        dg_text(r, DG_TX_AUD_LONG, step);
     }
 }
 
@@ -78,7 +78,7 @@ void dg_test_audio(dg_run_t *r)
             audio_probe_name(audio_probe_result()), init_rc);
     if (init_rc != 0 && init_rc != AUDIO_ERR_NO_PWM && init_rc != AUDIO_ERR_PIN) {
         r->result = DG_FAIL;
-        dg_text(r, "Audio does not start: %d.", init_rc);
+        dg_text(r, DG_TX_AUD_INIT, init_rc);
         return;
     }
     dg_work_line(0, "Sweep: 250 Hz to 4000 Hz", 1);
@@ -87,7 +87,7 @@ void dg_test_audio(dg_run_t *r)
         if (rc != 0) {
             r->result = DG_FAIL;
             dg_keys(r, "why=tone hz=%u rc=%d", (unsigned)sweep[i], rc);
-            dg_text(r, "Tone %u Hz failed: %d.", (unsigned)sweep[i], rc);
+            dg_text(r, DG_TX_AUD_TONE, (unsigned)sweep[i], rc);
             return;
         }
         w = wait_done(TONE_MS + WAIT_SLACK_MS);
@@ -101,7 +101,7 @@ void dg_test_audio(dg_run_t *r)
     if (rc != 0) {
         r->result = DG_FAIL;
         dg_keys(r, "why=play rc=%d", rc);
-        dg_text(r, "The tune failed: %d.", rc);
+        dg_text(r, DG_TX_AUD_TUNE, rc);
         return;
     }
     for (i = 0; i < NOTES; i++) {
@@ -114,6 +114,5 @@ void dg_test_audio(dg_run_t *r)
     }
     r->result = DG_OK;
     dg_keys(r, "tones=%u notes=%u", (unsigned)TONES, (unsigned)NOTES);
-    dg_text(r, "%s backend, %u tones and %u notes", audio_backend(), (unsigned)TONES,
-            (unsigned)NOTES);
+    dg_text(r, DG_TX_AUD_OK, audio_backend(), (unsigned)TONES, (unsigned)NOTES);
 }

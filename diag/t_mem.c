@@ -71,7 +71,7 @@ void dg_test_mem(dg_run_t *r)
     if (rc != DG_MEM_OK) {
         r->result = DG_FAIL;
         dg_keys(r, "why=ranges rc=%d mem=0x%08x", rc, (unsigned)dg.mem_size);
-        dg_text(r, "No RAM to test.");
+        dg_text(r, DG_TX_MEM_NORAM);
         return;
     }
     if (r->mode == DG_MODE_ALL) {
@@ -111,8 +111,7 @@ void dg_test_mem(dg_run_t *r)
                                 dg_pat_name(pat), (unsigned)fault.addr,
                                 (unsigned)fault.expected, (unsigned)fault.found);
                         dg_keys(r, "bytes=%u", (unsigned)total);
-                        dg_text(r, "0x%08x: 0x%08x, not 0x%08x", (unsigned)fault.addr,
-                                (unsigned)fault.found, (unsigned)fault.expected);
+                        dg_text(r, DG_TX_MEM_FAULT, (unsigned)fault.addr);
                         k_snprintf(line, sizeof(line), "Fault at 0x%08x: read 0x%08x, wrote 0x%08x",
                                    (unsigned)fault.addr, (unsigned)fault.found,
                                    (unsigned)fault.expected);
@@ -123,7 +122,7 @@ void dg_test_mem(dg_run_t *r)
                     if (dg_poll_abort()) {
                         r->result = DG_SKIPPED;
                         dg_keys(r, "why=abort pattern=%s", dg_pat_name(pat));
-                        dg_text(r, "Stopped.");
+                        dg_text(r, DG_TX_STOPPED);
                         return;
                     }
                     dg_progress(&rate, DG_WORK_ROWS - 2, "mem", dg_pat_name(pat), done,
@@ -137,5 +136,5 @@ void dg_test_mem(dg_run_t *r)
     dg_keys(r, "ranges=%u start=0x%08x end=0x%08x bytes=%u patterns=%u ms=%u", n,
             (unsigned)rg[0].start, (unsigned)rg[n - 1].end, (unsigned)total, DG_PAT_COUNT,
             (unsigned)ms);
-    dg_text(r, "%u KiB, %u patterns, %u ms", (unsigned)(total >> 10), DG_PAT_COUNT, (unsigned)ms);
+    dg_text(r, DG_TX_MEM_OK, (unsigned)(total >> 20), DG_PAT_COUNT, (unsigned)((ms + 999u) / 1000u));
 }

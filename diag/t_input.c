@@ -98,5 +98,5 @@ void dg_test_input(dg_run_t *r)
     r->result = DG_OK;
     dg_keys(r, "events=%u why=%s gpio=%s", count, dg_live_why(why),
             input_gpio_status_name(input_gpio_status()));
-    dg_text(r, "%u events, left by %s", count, dg_live_why(why));
+    dg_text(r, DG_TX_IN_OK, count, dg_live_why(why));
 }

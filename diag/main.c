@@ -59,7 +59,7 @@ static int pending = -1;        /* a row the port asked to run */
 
 void dg_mark(const char *fmt, ...)
 {
-    char buf[256];
+    char buf[DG_LINE_MAX + DG_KEYS_MAX];
     va_list ap;
 
     va_start(ap, fmt);
@@ -264,7 +264,7 @@ static int run_test(unsigned t, int mode)
     if (mode == DG_MODE_ALL && dg_test_interactive(t)) {
         r.result = DG_SKIPPED;
         dg_keys(&r, "why=interactive");
-        dg_text(&r, "Needs a person: start it alone.");
+        dg_text(&r, DG_TX_PERSON);
     } else {
         tests[t](&r);
     }
@@ -311,7 +311,7 @@ static void run_all(void)
     dg_mark("%s", line);
     dg_line_status_all(status, sizeof(status), &c);
     results[DG_ITEM_ALL] = c.n[DG_FAIL] != 0 ? DG_FAIL : DG_OK;
-    k_snprintf(texts[DG_ITEM_ALL], sizeof(texts[DG_ITEM_ALL]), "%u ok, %u failed", c.n[DG_OK],
+    k_snprintf(texts[DG_ITEM_ALL], sizeof(texts[DG_ITEM_ALL]), DG_TX_ALL, c.n[DG_OK],
                c.n[DG_FAIL]);
     draw_item(DG_ITEM_ALL);
 }

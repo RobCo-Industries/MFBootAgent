@@ -53,7 +53,65 @@ void dg_counts_add(dg_counts_t *c, int r);
 /* The detail text of a result on the screen. */
 #define DG_TEXT_MAX     64u
 /* The test keys of a result marker. */
-#define DG_KEYS_MAX     200u
+#define DG_KEYS_MAX     320u
+
+/*
+ * The detail texts of the menu rows, set by dg_text(). A row with a result
+ * has DG_ITEM_FIXED columns before its text, and the console leaves the
+ * last of the DG_MIN_COLS columns blank. So a text holds DG_TEXT_COLS
+ * characters at most, with its worst-case values. test_diag_fmt.c builds
+ * every row with them. The full detail goes to the work rows.
+ */
+#define DG_ITEM_FIXED   53u
+#define DG_TEXT_COLS    (DG_MIN_COLS - 1u - DG_ITEM_FIXED)
+
+#define DG_TX_STOPPED       "Stopped."
+#define DG_TX_PERSON        "Needs a person: run alone"
+#define DG_TX_I2C           "I2C does not start."
+#define DG_TX_ALL           "%u ok, %u failed"
+/* mem: MiB, patterns, seconds rounded up. */
+#define DG_TX_MEM_NORAM     "No RAM to test."
+#define DG_TX_MEM_FAULT     "Bad word at 0x%08x"
+#define DG_TX_MEM_OK        "%u MiB, %u patterns, %us"
+/* sd */
+#define DG_TX_SD_NOCARD     "No card."
+#define DG_TX_SD_NOSTART    "The card does not start."
+#define DG_TX_SD_NOVOL      "No boot volume."
+#define DG_TX_SD_NODIR      "No /ROBCO folder"
+#define DG_TX_SD_DIRERR     "/ROBCO read error %d"
+#define DG_TX_SD_BLOCKS     "%u of %u blocks bad"
+#define DG_TX_SD_BAD        "%.12s: %s"
+#define DG_TX_SD_WRITES     "%u writes refused"
+#define DG_TX_SD_OK         "%u blocks, %u images OK"
+/* video */
+#define DG_TX_VID_NOFB      "No screen."
+#define DG_TX_VID_MBOX      "Mailbox does not answer."
+#define DG_TX_VID_MODE      "Mode differs from screen"
+#define DG_TX_VID_OK        "%ux%u, %u to judge"
+/* audio */
+#define DG_TX_AUD_INIT      "Audio does not start: %d."
+#define DG_TX_AUD_LONG      "The %s ran too long."
+#define DG_TX_AUD_TONE      "Tone %u Hz failed: %d."
+#define DG_TX_AUD_TUNE      "The tune failed: %d."
+#define DG_TX_AUD_OK        "%s, %u tones, %u notes"
+/* input */
+#define DG_TX_IN_OK         "%u events, exit %s"
+/* timer */
+#define DG_TX_TMR_STOP      "Tick stopped at tick %u"
+#define DG_TX_TMR_OK        "%d ppm, %u missed"
+/* rng */
+#define DG_TX_RNG_NONE      "No generator."
+#define DG_TX_RNG_READ      "No data after %u words."
+#define DG_TX_RNG_OK        "%u repeats, %u ones"
+/* rtc */
+#define DG_TX_RTC_ABSENT    "No clock chip at 0x%02x."
+#define DG_TX_RTC_INIT      "Clock chip error %d."
+#define DG_TX_RTC_HALTED    "Clock halted: time invalid"
+#define DG_TX_RTC_READ      "Time read error %d."
+#define DG_TX_RTC_OK        "%s UTC"
+/* expander */
+#define DG_TX_X_OK          "%u of 2 chips present"
+#define DG_TX_X_ERR         "%u of 2 chips, read errors"
 
 void dg_line_title(char *buf, size_t size, const char *version);
 const char *dg_line_sub(void);

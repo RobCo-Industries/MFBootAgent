@@ -1,5 +1,6 @@
 /* The diagnostics lines, markers, progress rate and verdicts: exact texts and limits. */
 
+#include <stdio.h>
 #include <string.h>
 
 #include "dg_fmt.h"
@@ -250,4 +251,94 @@ TEST(rng_verdict)
     CHECK_EQ(bits, 1024);
     CHECK_EQ(dg_rng_judge(w, 1, &rep, &bits), DG_SKIPPED);
     CHECK_EQ(dg_rng_judge(NULL, 1024, &rep, &bits), DG_SKIPPED);
+}
+
+/*
+ * Every detail text with its worst-case values fits the menu row. The
+ * worst cases: 1024 MiB of RAM, 999 s, 65536 blocks read and bad, 99
+ * images, a 12-character 8.3 name with the longest outcome, a 4096x4096
+ * mode, the longest audio backend, error codes down to -99 (the library's
+ * codes stop at -21), 99999 events, the widest ppm, 1023 repeats of 1024
+ * words, a date, the widest unsigned count.
+ */
+static char texts[64][DG_TEXT_MAX];
+static unsigned n_texts;
+
+#define T(...) snprintf(texts[n_texts++], DG_TEXT_MAX, __VA_ARGS__)
+
+static void worst_texts(void)
+{
+    n_texts = 0;
+    T(DG_TX_STOPPED);
+    T(DG_TX_PERSON);
+    T(DG_TX_I2C);
+    T(DG_TX_ALL, 9u, 9u);
+    T(DG_TX_MEM_NORAM);
+    T(DG_TX_MEM_FAULT, 0xffffffffu);
+    T(DG_TX_MEM_OK, 1024u, 4u, 999u);
+    T(DG_TX_SD_NOCARD);
+    T(DG_TX_SD_NOSTART);
+    T(DG_TX_SD_NOVOL);
+    T(DG_TX_SD_NODIR);
+    T(DG_TX_SD_DIRERR, -99);
+    T(DG_TX_SD_BLOCKS, 65536u, 65536u);
+    T(DG_TX_SD_BAD, "ABCDEFGH.SYS", "version");
+    /* A long name is cut to 12 characters. */
+    T(DG_TX_SD_BAD, "A VERY LONG FILE NAME.SYS", "version");
+    T(DG_TX_SD_WRITES, 4294967295u);
+    T(DG_TX_SD_OK, 65536u, 99u);
+    T(DG_TX_VID_NOFB);
+    T(DG_TX_VID_MBOX);
+    T(DG_TX_VID_MODE);
+    T(DG_TX_VID_OK, 4096u, 4096u, 8u);
+    T(DG_TX_AUD_INIT, -99);
+    T(DG_TX_AUD_LONG, "sweep");
+    T(DG_TX_AUD_TONE, 4000u, -99);
+    T(DG_TX_AUD_TUNE, -99);
+    T(DG_TX_AUD_OK, "trace", 5u, 6u);
+    T(DG_TX_IN_OK, 99999u, "back2");
+    T(DG_TX_TMR_STOP, 100u);
+    T(DG_TX_TMR_OK, 2147483647, 100u);
+    T(DG_TX_TMR_OK, -1000000, 100u);
+    T(DG_TX_RNG_NONE);
+    T(DG_TX_RNG_READ, 1023u);
+    T(DG_TX_RNG_OK, 1023u, 32768u);
+    T(DG_TX_RTC_ABSENT, 0x68u);
+    T(DG_TX_RTC_INIT, -99);
+    T(DG_TX_RTC_HALTED);
+    T(DG_TX_RTC_READ, -99);
+    T(DG_TX_RTC_OK, "2099-12-31T23:59:59");
+    T(DG_TX_X_OK, 2u);
+    T(DG_TX_X_ERR, 2u);
+}
+
+TEST(every_row_fits_the_screen)
+{
+    static const int res[] = { DG_OK, DG_FAIL, DG_ABSENT, DG_SKIPPED };
+    unsigned i;
+    unsigned t;
+    unsigned k;
+
+    CHECK_EQ(DG_TEXT_COLS, 26);
+    worst_texts();
+    CHECK(n_texts > 30);
+    /* The fixed part of a row with a result. */
+    dg_line_item(buf, sizeof(buf), DG_T_EXPANDER, 1, DG_SKIPPED, "");
+    CHECK_EQ(strlen(buf), DG_ITEM_FIXED);
+    for (i = 0; i < n_texts; i++) {
+        if (strlen(texts[i]) > DG_TEXT_COLS) {
+            printf("  too long (%u): \"%s\"\n", (unsigned)strlen(texts[i]), texts[i]);
+        }
+        CHECK(strlen(texts[i]) <= DG_TEXT_COLS);
+        for (t = 0; t < DG_ITEMS; t++) {
+            for (k = 0; k < sizeof(res) / sizeof(res[0]); k++) {
+                dg_line_item(buf, sizeof(buf), t, 1, res[k], texts[i]);
+                /* The whole text shows: the console keeps column 80 blank. */
+                CHECK(strlen(buf) <= DG_MIN_COLS - 1u);
+                CHECK(strstr(buf, texts[i]) != NULL);
+                dg_line_status_one(buf, sizeof(buf), t, res[k], texts[i]);
+                CHECK(strlen(buf) <= DG_MIN_COLS - 1u);
+            }
+        }
+    }
 }

@@ -137,14 +137,14 @@ void dg_test_video(dg_run_t *r)
     if (!dg.fb_ok || fb == 0) {
         r->result = DG_ABSENT;
         dg_keys(r, "why=nofb");
-        dg_text(r, "No screen.");
+        dg_text(r, DG_TX_VID_NOFB);
         return;
     }
     rc = read_mode(&m);
     if (rc != 0) {
         r->result = DG_FAIL;
         dg_keys(r, "why=mbox");
-        dg_text(r, "The mailbox does not answer.");
+        dg_text(r, DG_TX_VID_MBOX);
         return;
     }
     dg_keys(r, "width=%u height=%u depth=%u pitch=%u order=%s", (unsigned)m.w, (unsigned)m.h,
@@ -153,7 +153,7 @@ void dg_test_video(dg_run_t *r)
         r->result = DG_FAIL;
         dg_keys(r, "why=mismatch fb_width=%u fb_height=%u", (unsigned)fb->width,
                 (unsigned)fb->height);
-        dg_text(r, "Mode differs from the screen in use.");
+        dg_text(r, DG_TX_VID_MODE);
         return;
     }
     for (p = 0; p < P_COUNT; p++) {
@@ -163,12 +163,11 @@ void dg_test_video(dg_run_t *r)
         if (step_wait(r->mode == DG_MODE_ALL)) {
             r->result = DG_SKIPPED;
             dg_keys(r, "why=abort pattern=%s", names[p]);
-            dg_text(r, "Stopped.");
+            dg_text(r, DG_TX_STOPPED);
             return;
         }
     }
     r->result = DG_OK;
     dg_keys(r, "patterns=%u judge=person", P_COUNT);
-    dg_text(r, "%ux%u, %u patterns. A person judges them.", (unsigned)fb->width,
-            (unsigned)fb->height, P_COUNT);
+    dg_text(r, DG_TX_VID_OK, (unsigned)fb->width, (unsigned)fb->height, P_COUNT);
 }
