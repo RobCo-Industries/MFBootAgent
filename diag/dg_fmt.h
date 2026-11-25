@@ -177,6 +177,15 @@ void dg_line_xregs(char *buf, size_t size, unsigned chip, unsigned addr, int pre
 int dg_x_attach(uint8_t pol, int (*attach)(unsigned, uint8_t), unsigned chip, uint8_t addr,
                 int *rc);
 
+/*
+ * 1 when all four registers of a chip that answered read 0xff. A fresh
+ * PCA9554 holds polarity 0 and gpiox_attach() writes 0 there, so a
+ * polarity of 0xff with every other register 0xff means a data line held
+ * high after the address byte: a bus fault, not pin levels. All zeros
+ * stays information: every pin an output driven low reads that way.
+ */
+int dg_x_stuck(const uint8_t reg[4]);
+
 /* One button of the GPIO backend: its key name and its state. */
 void dg_line_button(char *buf, size_t size, const char *key, int pressed);
 /* One input event: its source, type, code and value. */

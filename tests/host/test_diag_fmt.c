@@ -154,6 +154,20 @@ TEST(expander_attach_raw_ok_or_error)
     CHECK_EQ(rc, -3);
 }
 
+TEST(expander_stuck_registers)
+{
+    uint8_t fresh[4] = { 0xff, 0xff, 0x00, 0xff };
+    uint8_t stuck[4] = { 0xff, 0xff, 0xff, 0xff };
+    uint8_t low[4] = { 0x00, 0x00, 0x00, 0x00 };
+
+    CHECK_EQ(dg_x_stuck(fresh), 0);
+    CHECK_EQ(dg_x_stuck(stuck), 1);
+    /* Every pin an output driven low: information, not a fault. */
+    CHECK_EQ(dg_x_stuck(low), 0);
+    stuck[0] = 0xfe;
+    CHECK_EQ(dg_x_stuck(stuck), 0);
+}
+
 TEST(expander_lines)
 {
     dg_line_xrow(buf, sizeof(buf), 0, 1, 0xFE, 1, 0x01);

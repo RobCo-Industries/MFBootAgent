@@ -346,6 +346,11 @@ int dg_video_judge(const dg_vmode_t *mode, const dg_vmode_t *fb)
     return DG_VID_OK;
 }
 
+int dg_x_stuck(const uint8_t reg[4])
+{
+    return reg[0] == 0xffu && reg[1] == 0xffu && reg[2] == 0xffu && reg[3] == 0xffu;
+}
+
 int dg_x_attach(uint8_t pol, int (*attach)(unsigned, uint8_t), unsigned chip, uint8_t addr,
                 int *rc)
 {
