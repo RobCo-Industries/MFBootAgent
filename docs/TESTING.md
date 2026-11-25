@@ -6,7 +6,7 @@
 
 | File | Covers |
 |---|---|
-| `test_bootcfg.c` | The spec's three examples verbatim, the order of results per entry header, every limit, the path and `cmdline` rules, upper-case paths, last value wins, `[boot]` twice, duplicates, more than 8 usable entries, unusable sections that take no slot, defaults, syntax errors |
+| `test_bootcfg.c` | `[maint]` skipped without a count. The spec's three examples verbatim, the order of results per entry header, every limit, the path and `cmdline` rules, upper-case paths, last value wins, `[boot]` twice, duplicates, more than 8 usable entries, unusable sections that take no slot, defaults, syntax errors |
 | `test_menu.c` | Every key in every state, the countdown to zero, a key stopping it, `timeout = 0`, digits past the entries, the wrap of `timer_now_ms()` |
 | `test_diag_menu.c` | The diagnostics menu and the live view exit rule. The port request rule of `src/portreq.c` for `diag`: live in its turn, stale once dropped, and no key for the menu. |
 | `test_diag_fmt.c` | The diagnostics lines and markers, every row text within 26 columns, and the timer, RNG, video and expander verdicts |
@@ -15,7 +15,8 @@
 | `test_menulines.c` | Every line of the screen and the 79-column limit |
 | `test_boot.c` | Loader results to codes and lines, the accepted subtypes, the header check order up to the subtype, the boot info fields this stage writes, the four cases of the `boot_flags` bit 1 rule |
 | `test_keymap.c` | Every key code with press, repeat and release, every character, other events |
-| `test_maintscr.c` | Every key on every action, every page's lines, long names and paths cut as the menu cuts them, the screen on 80 by 18 and 80 by 30 grids |
+| `test_maintreq.c` | The maintenance request: each row of the spec's failure table, the 63-byte line with each line end, binary and long content, the delete result, the screen at start with `why=request` or `flag`, the held BACK, every road for `boot_flags` bits 1 and 3 over subtypes, results, received flags and trust, and the `MAINT` entry or the fixed path |
+| `test_maintscr.c` | The first BACK skipped after a request with BACK held, the request rows and the notice. Every key on every action, every page's lines, long names and paths cut as the menu cuts them, the screen on 80 by 18 and 80 by 30 grids |
 
 ## Target tests
 
@@ -38,6 +39,8 @@ How the stage starts:
 | `test_chain.py` | After chain1: the screen is adopted, the old text stays, the boot info keeps earlier fields and sets new ones. After chain1 with no framebuffer: the `init` path. With `RETROS_IMG`: BIOS, MFBootAgent and the test OS in order, and the BIOS text above the menu. |
 | `test_env_hygiene.py` | No test copies the host environment |
 | `test_maint.py` | The maintenance screen opened by `M`, BACK, the port and `boot_flags` bit 1 from `tests/chain1maint`. Each action, verify with good and bad entries and with the card ejected, the countdown not restarting, `maint` and `key select` in one write in both orders, bit 1 in the next stage's boot info, the input back ends, the screen and verify goldens. |
+| `test_maint_req.py` | `/ROBCO/MAINT.REQ` on cards made by `card()`: no file, a line, an empty file, binary content, 64 and 63 bytes, a folder of that name, a request with BACK held through the GPIO guard, a delete that fails, two boots in a row with the file gone from the card image after the first, a request then UOS with bits 1 and 3 read by the test OS, a request with bit 1 received from `tests/chain1maint`, `MAINT` from the menu with bit 1 set and bit 3 clear, the screen starting `/ROBCO/MAINT.SYS` with no `MAINT` entry and with no `BOOT.CFG`, and a missing `MAINT.SYS`. The test OS sealed with subtype 2 stands in for `MAINT.SYS`. |
+| `test_card_writes.py` | No QEMU: the agent links no writing call of the file system API but `fs_unlink()`, calls it once with the request's path, and opens every file with `FS_READ` |
 | `test_port_replies.py` | `state()` and `batch()` against a fake port, no QEMU: a reply left unread by a raw write is reported |
 | `test_timing_skips.py` | No QEMU: the library's host timing skip limit is loaded, and a starved timer skips with a reason it counts |
 
@@ -87,6 +90,12 @@ QEMU models no cache. The memory test proves that the flush runs over every byte
 
 `test_diag_mem.py` allows a full pass `HOST_ALLOWANCE`, 20 s, above 10 s. The input idle test waits 20 s. Each test file takes under 35 s per board.
 
+## The failed delete
+
+QEMU refuses a read-only drive as an SD card, and the agent has no fault hook. So `test_delete_fails_on_a_locked_file` sets the FAT read-only attribute on `MAINT.REQ` with `mattrib +r`. `fs_unlink()` then fails with `FS_ERR_DENIED`, -8. A write-protected card and an I/O error during the delete are covered by the host tests of `src/maintreq.c` only: any non-zero code gives `clear_failed`.
+
+Without `check_request()` in `main.c`, `test_line_shows_and_file_goes` fails. Without the subtype in the bit 1 rule, `test_maint_from_the_menu` fails.
+
 ## GPIO buttons
 
 QEMU models no GPIO pulls, so an undriven line reads 0 and an active-low button reads pressed. RobCo-Core's `harness.pigpio` sets input levels through qtest. `boot(..., qtest=True, gpio_high=pins)` drives lines high before the guest starts, and `PiGpio` presses and releases them. `alone()` in `tests/mfboot.py` and in `tests/diag.py` passes both through.
@@ -110,3 +119,4 @@ What stays unverified until hardware:
 - The backend samples on the tick. No edge interrupt is modelled or used, so an edge path cannot be checked.
 - Pulls are not modelled. The internal pull-up that holds a released line high on a board is not exercised: the test drives the line high instead.
 - Real switch wiring, contact resistance and a button that sticks after release.
+- The delete of `MAINT.REQ` on a real card, and a card's write-protect switch.

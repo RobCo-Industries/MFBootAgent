@@ -107,16 +107,17 @@ It then waits. Keys do nothing. Power the board off, fix the card and power it o
 
 - Press `M` in the menu, or the BACK button.
 - A test script can send `maint` on the maintenance port. This port exists in QEMU only.
+- It opens by itself, in place of the countdown, after a [maintenance request](#maintenance-request) on the card.
 - It opens by itself, in place of the countdown, when the previous stage passes on the request for maintenance mode. RETROS-BIOS does not make that request today.
 
 Opening the screen stops the countdown.
 
 ```
 MFBOOT AGENT V0.1.0 MAINTENANCE
-========================================
 > Verify entries
   System
   Configuration
+  Start the maintenance image
   Reboot
   Back to the boot menu
 UP/DOWN: move   ENTER: run   ESC or Q: back to the boot menu
@@ -170,6 +171,10 @@ The page shows the state of the last mount. After a failed Verify entries or boo
 
 The file as the stage read it at start, and how it was used: `in use`, `missing`, `does not read`, a line that does not parse, or `has no usable entry`. In the last four cases the menu has one default entry. Then the default entry, the timeout, the number of entries, and the counts of ignored, duplicate and bad entry sections and of clamped timeouts. [BOOT.md](BOOT.md#counters) defines each count.
 
+### Start the maintenance image
+
+Starts the maintenance image, as if you chose it in the menu. It uses the path of the `MAINT` entry when `BOOT.CFG` has one. Without one, and with the default menu of a missing or broken `BOOT.CFG`, it uses `/ROBCO/MAINT.SYS`. So a damaged `BOOT.CFG` never locks you out of it. When the file is missing or bad, the usual [error line](#error-lines) shows under the menu.
+
 ### Reboot
 
 Restarts the board through the watchdog.
@@ -180,11 +185,35 @@ Same as ESC.
 
 ### What the next stage learns
 
-The stage passes boot flags to the next stage. Bit 1 means the user asked for maintenance mode. The stage sets it when you opened the maintenance screen during this boot. It keeps it when the previous stage passed it on. Otherwise it is clear. The diagnostics image ignores the bit.
+The stage passes boot flags to the next stage.
+
+- Bit 1 means the user asked for maintenance mode. The stage sets it when a maintenance request was found, when the maintenance screen opened during this boot, including when the previous stage passed bit 1 on, and when the image it starts is the maintenance image. Otherwise it is clear.
+- Bit 3 means a maintenance request file asked for it. The stage sets it when a request was found this boot, whatever image you then start. Otherwise it is clear.
+
+The maintenance image always gets bit 1. The diagnostics image ignores both bits.
+
+### Maintenance request
+
+UOS can ask for maintenance at the next start, for its command `SET HALT RESTART /MAINTENANCE`. It writes the file `/ROBCO/MAINT.REQ` on the card and restarts. You can also put an empty file of that name on the card from a computer.
+
+At the next start this stage finds the file, reads it and deletes it. Then the menu shows with no countdown and the maintenance screen opens. Under the keys line it shows `MAINTENANCE REQUESTED` and the note in the file, such as who asked. A note is one line of up to 63 printable characters. A longer note, or one with other bytes, does not show, and the request still counts. No image starts until you pick one. The request works once: the next start is normal.
+
+When the file cannot be deleted, for a locked card, a locked file or a card error, the screen adds a notice:
+
+```
+NOTICE: /ROBCO/MAINT.REQ could not be deleted, code -8.
+The request comes back at each start until the file is removed.
+```
+
+Remove the file from a computer, or unlock the card, to stop it. A folder named `MAINT.REQ` is no request.
+
+Holding BACK while a request waits gives the same screen, once.
+
+The delete of this file is the only thing this stage ever writes on the card.
 
 ## BOOT.CFG
 
-`/ROBCO/BOOT.CFG` is a text file on the card. RETROS-BIOS reads its `[bios]` section. This stage reads `[boot]` and the `[entry NAME]` sections. The default file:
+`/ROBCO/BOOT.CFG` is a text file on the card. RETROS-BIOS reads its `[bios]` section and the maintenance image its `[maint]` section. This stage reads `[boot]` and the `[entry NAME]` sections, and skips the others. The default file:
 
 ```
 [boot]
@@ -237,6 +266,7 @@ A missing file, a line that does not parse, or a file with no usable entry gives
 | Nothing on the serial line after the BIOS | The BIOS did not start this stage | Read the BIOS error line and the BIOS manual |
 | `BOOT HALTED` | No card or no usable FAT volume | Reseat the card, check `/ROBCO/BOOT.CFG` or `/ROBCO/UOS.SYS` is on it, then power cycle |
 | Only one entry, `UOS`, and no countdown | `BOOT.CFG` is missing, does not parse or has no usable entry | Open the maintenance screen, run Configuration, fix the file |
+| The maintenance screen opens at each start with a notice | `/ROBCO/MAINT.REQ` cannot be deleted | Remove the file from a computer, or unlock the card |
 | An entry you wrote is missing | Bad name, bad or missing path, repeated name, or more than 8 entries | Run Configuration and check the counts |
 | The countdown does not run | No `timeout` key, a bad value, a key was pressed, or the previous stage asked for maintenance mode | Press ENTER to boot |
 | An error line after ENTER | The image failed a check | See [Error lines](#error-lines). Run Verify entries to check every entry at once. |
