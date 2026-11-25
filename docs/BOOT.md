@@ -70,6 +70,8 @@ The buttons use the example pins of BOARD_SUPPORT.md in RobCo-Core: UP 5, DOWN 6
 
 It opens on `M`, on BACK from the buttons or the port, on the port's `maint` command, and at start when the boot info is trusted and has `boot_flags` bit 1 set. At start it takes the place of the countdown: the menu shows with no countdown, then the screen opens. Opening it any other way stops the countdown like a key. Closing it draws the menu again below it. The countdown does not start again.
 
+The port's `maint` goes through the input queue behind the keys sent before it, so the menu takes them in the order the port got them. `maint` then `key select` opens the screen, and SELECT acts inside it. `key select` then `maint` boots: the stage drops the request with `maint_drop why=boot` before the load, and a failed load does not open the screen later. When a key opens the screen before the request comes up, the stage drops the request with `maint_drop why=open`. A full queue answers `err busy`.
+
 The screen takes 18 rows below the text on screen, scrolling like the menu, and writes each of its rows in full. Rows: title, rule, five actions, the keys, then ten output rows. UP and DOWN move the bar, ENTER or SELECT runs the action, ESC, Q or BACK closes it.
 
 | Action | Does |
@@ -150,6 +152,7 @@ In the order they print.
 | `idle` | | The stage stopped and waits |
 | `reboot` | `source` | `key`, `maint` or `screen` |
 | `maint_open` | `why` | The maintenance screen opened: `key`, `button`, `port` or `flag` |
+| `maint_drop` | `why` | The port's `maint` was answered `ok` but did not open the screen: `boot` when a boot was chosen first, `open` when the screen was already open |
 | `maint_action` | `name` | An action ran: `verify`, `system`, `config`, `reboot` or `back` |
 | `verify_entry` | `index name path result` | One entry checked. `result` is `ok` or the `error` code. |
 | `verify_done` | `result entries good failed`, with `what rc` for `result=io` | The verify action ended. `result` is `ok` or `io`. |
@@ -262,8 +265,8 @@ An entry header is `entry`, one or more spaces or tabs, then the name. The stage
 | A boot agent or other non-OS subtype | Refused with code 6, `bounds`, before the ABI and CRC steps |
 | Boot volume markers | `/ROBCO/BOOT.CFG` and `/ROBCO/UOS.SYS` |
 | `boot_flags` after this stage | Fallback bit cleared. Bit 1 set when the user opened the maintenance screen or it arrived set in a trusted block, clear otherwise. Other bits kept. |
-| Markers of the maintenance screen | `maint_open`, `maint_action`, `verify_entry`, `verify_done`, `maint_close`, and `source=screen` for `reboot` |
+| Markers of the maintenance screen | `maint_open`, `maint_drop`, `maint_action`, `verify_entry`, `verify_done`, `maint_close`, and `source=screen` for `reboot` |
 | `input` keys | The spec's keys, plus `gpio buttons repeat live` |
 | Which BACK opens the screen | BACK from the buttons or the port. ESC on the PL011 only stops the countdown, so ESC can close the screen without opening it again. |
-| `maint` on the port outside the menu | Refused with `err not in the menu`, or `err already open` while the screen shows |
+| `maint` on the port outside the menu | Refused with `err not in the menu`, or `err already open` while the screen shows or a request waits. Queued behind earlier keys, see [Maintenance screen](#maintenance-screen). |
 | The screen after a handoff | Adopted, see [Screen](#screen) |

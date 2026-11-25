@@ -37,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - An image with a wrong subtype and a wrong CRC reported `crc`. It now reports `bounds`.
 - Verify entries could not mount the card again after it was pulled out once. Verify entries and each boot now mount the card in the slot, and recover after any failure.
 - A trusted console grid with too few rows for the menu put every menu row on the last row. A grid below 80 by 18 now gets a fresh screen, and the `screen` marker adds `grid`.
+- The port's `maint` sent after a key in one write could be answered `ok` and skipped, then open the screen after a failed load. The request now waits in the input queue behind earlier keys. A boot chosen first drops it with the new `maint_drop` marker.
 - The start wait for the GPIO guard no longer drops an event. A button held at power-on now reaches the menu, so a held BACK opens the maintenance screen.
 
 ### Removed
