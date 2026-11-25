@@ -45,6 +45,16 @@ typedef struct {
 #define DG_MEM_OK       0
 #define DG_MEM_ERR_ARG  (-1)    /* NULL, or the image is not inside RAM */
 #define DG_MEM_ERR_NONE (-2)    /* nothing is left to test */
+#define DG_MEM_ERR_TOP  (-3)    /* the boot info gives RAM the mailbox does not */
+
+/*
+ * The RAM of a trusted boot info against the mailbox's ARM memory. The
+ * test writes what the boot info gives, so a range that starts below the
+ * mailbox's or ends past it would write memory the ARM does not own:
+ * DG_MEM_ERR_TOP. A smaller range is DG_MEM_OK: an earlier stage may keep
+ * RAM back. DG_MEM_OK too when either size is 0: one source only.
+ */
+int dg_mem_agree(uint32_t bi_base, uint32_t bi_size, uint32_t mb_base, uint32_t mb_size);
 
 /*
  * Fills out[] with the ranges the test may write: from image_end, rounded

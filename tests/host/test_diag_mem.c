@@ -174,6 +174,22 @@ TEST(errors)
     CHECK_EQ(r[0].end, 0xFFFFF000u);
 }
 
+TEST(boot_info_ram_inside_the_mailbox_ram)
+{
+    CHECK_EQ(dg_mem_agree(0, 0x1c000000u, 0, 0x1c000000u), DG_MEM_OK);
+    /* An earlier stage kept the top back. */
+    CHECK_EQ(dg_mem_agree(0, 0x18000000u, 0, 0x1c000000u), DG_MEM_OK);
+    CHECK_EQ(dg_mem_agree(0x1000u, 0x1bfff000u, 0, 0x1c000000u), DG_MEM_OK);
+    /* Past the top, or below the base: RAM the ARM does not own. */
+    CHECK_EQ(dg_mem_agree(0, 0x1c001000u, 0, 0x1c000000u), DG_MEM_ERR_TOP);
+    CHECK_EQ(dg_mem_agree(0, 0x3c000000u, 0, 0x1c000000u), DG_MEM_ERR_TOP);
+    CHECK_EQ(dg_mem_agree(0, 0x1000u, 0x1000u, 0x1c000000u), DG_MEM_ERR_TOP);
+    CHECK_EQ(dg_mem_agree(0xfffff000u, 0x2000u, 0, 0xffffffffu), DG_MEM_ERR_TOP);
+    /* One source only. */
+    CHECK_EQ(dg_mem_agree(0, 0x3c000000u, 0, 0), DG_MEM_OK);
+    CHECK_EQ(dg_mem_agree(0, 0, 0, 0x1c000000u), DG_MEM_OK);
+}
+
 TEST(limit_keeps_the_first_bytes)
 {
     dg_range_t r[3] = { { 0x1000, 0x3000 }, { 0x5000, 0x9000 }, { 0xA000, 0xB000 } };

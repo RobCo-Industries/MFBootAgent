@@ -76,6 +76,7 @@ int dg_counts_result(const dg_counts_t *c, int stopped);
 #define DG_TX_ALL           "%u ok, %u failed"
 /* mem: MiB, patterns, seconds rounded up. */
 #define DG_TX_MEM_NORAM     "No RAM to test."
+#define DG_TX_MEM_TOP       "Boot info RAM past mailbox"
 #define DG_TX_MEM_FAULT     "Bad word at 0x%08x"
 #define DG_TX_MEM_OK        "%u MiB, %u patterns, %us"
 /* sd */

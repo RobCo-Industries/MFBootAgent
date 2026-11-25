@@ -360,6 +360,7 @@ static void worst_texts(void)
     T(DG_TX_I2C);
     T(DG_TX_ALL, 9u, 9u);
     T(DG_TX_MEM_NORAM);
+    T(DG_TX_MEM_TOP);
     T(DG_TX_MEM_FAULT, 0xffffffffu);
     T(DG_TX_MEM_OK, 1024u, 4u, 999u);
     T(DG_TX_SD_NOCARD);

@@ -584,6 +584,8 @@ static void entry(void)
     bi = dg.trusted ? bootinfo_get() : NULL;
     dg.mem_base = bi != NULL ? bi->mem_base : b->mem_base;
     dg.mem_size = bi != NULL ? bi->mem_size : b->mem_size;
+    dg.mb_base = b->mem_base;
+    dg.mb_size = b->mem_size;
     dg.test = -1;
     dg.i2c_rc = 1;
     init_screen();

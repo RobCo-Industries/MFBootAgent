@@ -60,6 +60,14 @@ void dg_test_mem(dg_run_t *r)
     uint32_t ms;
     int rc;
 
+    if (dg_mem_agree(dg.mem_base, dg.mem_size, dg.mb_base, dg.mb_size) != DG_MEM_OK) {
+        r->result = DG_FAIL;
+        dg_keys(r, "why=top mem_base=0x%08x mem=0x%08x mb_base=0x%08x mb_mem=0x%08x",
+                (unsigned)dg.mem_base, (unsigned)dg.mem_size, (unsigned)dg.mb_base,
+                (unsigned)dg.mb_size);
+        dg_text(r, DG_TX_MEM_TOP);
+        return;
+    }
     k_memset(&in, 0, sizeof(in));
     k_memset(&fault, 0, sizeof(fault));
     in.image_start = (uint32_t)(uintptr_t)__image_start;

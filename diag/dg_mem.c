@@ -106,6 +106,18 @@ int dg_mem_ranges(const dg_mem_in_t *in, dg_range_t out[DG_MEM_RANGES_MAX], unsi
     return k == 0 ? DG_MEM_ERR_NONE : DG_MEM_OK;
 }
 
+int dg_mem_agree(uint32_t bi_base, uint32_t bi_size, uint32_t mb_base, uint32_t mb_size)
+{
+    if (bi_size == 0 || mb_size == 0) {
+        return DG_MEM_OK;
+    }
+    if (bi_base < mb_base ||
+        (uint64_t)bi_base + bi_size > (uint64_t)mb_base + mb_size) {
+        return DG_MEM_ERR_TOP;
+    }
+    return DG_MEM_OK;
+}
+
 uint32_t dg_mem_total(const dg_range_t *r, unsigned n)
 {
     uint32_t t = 0;
