@@ -59,6 +59,17 @@ void dg_counts_add(dg_counts_t *c, int r)
     }
 }
 
+int dg_counts_result(const dg_counts_t *c, int stopped)
+{
+    if (c->n[DG_FAIL] != 0) {
+        return DG_FAIL;
+    }
+    if (stopped) {
+        return DG_SKIPPED;
+    }
+    return c->n[DG_OK] != 0 ? DG_OK : DG_ABSENT;
+}
+
 void dg_line_title(char *buf, size_t size, const char *version)
 {
     k_snprintf(buf, size, "TERMINAL DIAGNOSTICS V%s", version);

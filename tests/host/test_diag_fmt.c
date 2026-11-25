@@ -52,6 +52,24 @@ TEST(counts_and_markers)
     CHECK_STR(buf, "diag name");
 }
 
+TEST(run_all_result)
+{
+    dg_counts_t c;
+
+    dg_counts_init(&c);
+    CHECK_EQ(dg_counts_result(&c, 0), DG_ABSENT);
+    dg_counts_add(&c, DG_ABSENT);
+    CHECK_EQ(dg_counts_result(&c, 0), DG_ABSENT);
+    dg_counts_add(&c, DG_OK);
+    CHECK_EQ(dg_counts_result(&c, 0), DG_OK);
+    /* A stopped run is never OK, even when every test before the stop passed. */
+    dg_counts_add(&c, DG_SKIPPED);
+    CHECK_EQ(dg_counts_result(&c, 1), DG_SKIPPED);
+    dg_counts_add(&c, DG_FAIL);
+    CHECK_EQ(dg_counts_result(&c, 1), DG_FAIL);
+    CHECK_EQ(dg_counts_result(&c, 0), DG_FAIL);
+}
+
 TEST(menu_lines)
 {
     dg_line_title(buf, sizeof(buf), "0.1.0");
@@ -325,6 +343,7 @@ static void worst_texts(void)
     T(DG_TX_VID_MODE);
     T(DG_TX_VID_OK, 4096u, 4096u, 8u);
     T(DG_TX_AUD_INIT, -99);
+    T(DG_TX_AUD_PWM, -99);
     T(DG_TX_AUD_LONG, "sweep");
     T(DG_TX_AUD_TONE, 4000u, -99);
     T(DG_TX_AUD_TUNE, -99);

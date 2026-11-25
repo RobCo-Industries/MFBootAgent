@@ -32,6 +32,11 @@ typedef struct {
 void dg_counts_init(dg_counts_t *c);
 /* Counts one result; ignores values outside DG_OK to DG_SKIPPED. */
 void dg_counts_add(dg_counts_t *c, int r);
+/*
+ * The result of a whole run: DG_FAIL when a test failed, else DG_SKIPPED
+ * when ESC stopped the run, else DG_ABSENT when no test gave OK, else DG_OK.
+ */
+int dg_counts_result(const dg_counts_t *c, int stopped);
 
 /* The screen grid the menu needs. */
 #define DG_MIN_COLS     80u
@@ -90,6 +95,7 @@ void dg_counts_add(dg_counts_t *c, int r);
 #define DG_TX_VID_OK        "%ux%u, %u to judge"
 /* audio */
 #define DG_TX_AUD_INIT      "Audio does not start: %d."
+#define DG_TX_AUD_PWM       "No PWM, trace only: %d."
 #define DG_TX_AUD_LONG      "The %s ran too long."
 #define DG_TX_AUD_TONE      "Tone %u Hz failed: %d."
 #define DG_TX_AUD_TUNE      "The tune failed: %d."

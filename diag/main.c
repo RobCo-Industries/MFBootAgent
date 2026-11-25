@@ -310,7 +310,8 @@ static void run_all(void)
     dg_line_done(line, sizeof(line), &c);
     dg_mark("%s", line);
     dg_line_status_all(status, sizeof(status), &c);
-    results[DG_ITEM_ALL] = c.n[DG_FAIL] != 0 ? DG_FAIL : DG_OK;
+    /* A stopped run is never OK: the tests after the stop measured nothing. */
+    results[DG_ITEM_ALL] = dg_counts_result(&c, stop);
     k_snprintf(texts[DG_ITEM_ALL], sizeof(texts[DG_ITEM_ALL]), DG_TX_ALL, c.n[DG_OK],
                c.n[DG_FAIL]);
     draw_item(DG_ITEM_ALL);

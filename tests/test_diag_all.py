@@ -56,5 +56,8 @@ def test_abort_stops_the_rest(board, diag_image, good_card):
         assert {m.get("why") for m in events(vm, "diag")[1:]} == {"abort"}, vm.serial
         done = events(vm, "diag_done")[0]
         assert (done["ok"], done["skipped"]) == ("1", "8"), done
+        # A stopped run is never OK.
+        _, rows = dump(vm)
+        assert "SKIPPED  1 ok, 0 failed" in rows[13], rows
         # The tests after the abort never started.
         assert not events(vm, "video_pattern") and not events(vm, "audio"), vm.serial
