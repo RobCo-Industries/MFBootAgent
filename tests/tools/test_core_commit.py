@@ -65,18 +65,22 @@ def main_obj_ready(build, pin):
     return r.returncode == 0
 
 
-def test_a_new_value_compiles_main_again_in_the_same_second(tmp_path):
+def test_a_new_value_compiles_and_links_again_in_the_same_second(tmp_path):
     build = str(tmp_path / "build")
     obj = os.path.join(build, "obj", "src", "main.o")
+    linked = [os.path.join(build, "mfboot.elf"), os.path.join(build, "mfboot.img")]
     stamp = os.path.join(build, "core_commit")
     assert not main_obj_ready(build, "aaaaaaaaaaaa")  # writes the stamp
     os.makedirs(os.path.dirname(obj))
-    open(obj, "wb").close()
     t = int(os.stat(stamp).st_mtime) + 1
-    os.utime(stamp, (t, t))
-    os.utime(obj, (t, t))
+    for f in [obj, *linked]:
+        open(f, "wb").close()
+    for f in [stamp, obj, *linked]:
+        os.utime(f, (t, t))
     assert main_obj_ready(build, "aaaaaaaaaaaa")  # same value: no rebuild
+    assert all(os.path.exists(f) for f in [obj, *linked])  # and no relink
     assert not main_obj_ready(build, "bbbbbbbbbbbb")
-    assert not os.path.exists(obj)
+    # Gone, so make compiles and links them again whatever their times.
+    assert not any(os.path.exists(f) for f in [obj, *linked])
     with open(stamp) as f:
         assert f.read().strip() == "bbbbbbbbbbbb"

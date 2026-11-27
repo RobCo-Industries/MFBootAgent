@@ -118,13 +118,15 @@ include $(ROBCO_CORE)/mk/host.mk
 
 # The value is compiled into main.c. $(BUILD)/core_commit holds the last
 # one and changes only with it, so main.o rebuilds when the value moves
-# and not on every make. A new value also deletes main.o: GNU make 3.81
-# sees mtimes in whole seconds and would keep a main.o built in the same
-# second as the stamp. Each BUILD has its own stamp, build/mfbtest too.
+# and not on every make. A new value also deletes main.o and the ELF and
+# image linked from it: GNU make 3.81 sees mtimes in whole seconds and
+# would keep a file made in the same second as the one it depends on.
+# Each BUILD has its own stamp, build/mfbtest too.
 MFB_CORE_STAMP := $(BUILD)/core_commit
 MFB_MAIN_OBJ   := $(BUILD)/obj/src/main.o
 ifneq ($(shell cat '$(MFB_CORE_STAMP)' 2>/dev/null),$(MFB_CORE_PIN))
-$(shell mkdir -p '$(BUILD)' && rm -f '$(MFB_MAIN_OBJ)' && \
+$(shell mkdir -p '$(BUILD)' && \
+  rm -f '$(MFB_MAIN_OBJ)' '$(ROBCO_ELF)' '$(ROBCO_IMG)' && \
   printf '%s\n' '$(MFB_CORE_PIN)' > '$(MFB_CORE_STAMP)')
 endif
 $(MFB_MAIN_OBJ): $(MFB_CORE_STAMP)
