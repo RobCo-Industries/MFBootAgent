@@ -18,6 +18,7 @@ def printed(*args):
 
 
 def git(cwd, *args):
+    """git in a test's own temp repository, which its user owns."""
     r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True,
                        env=minimal_env(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull),
                        check=True)
@@ -29,8 +30,18 @@ def ci_pin():
         return re.search(r"robco-ci\.yml@([0-9a-f]{12})", f.read()).group(1)
 
 
+def expected_core_commit():
+    """What make takes, by the Makefile's rule: git asked in make's own
+    environment, global settings included, or the pin when git fails or
+    refuses the folder, as in a CI container on a checkout of another owner."""
+    r = subprocess.run(["git", "rev-parse", "--verify", "-q", "HEAD"], cwd=CORE,
+                       capture_output=True, text=True, env=minimal_env())
+    head = r.stdout.strip()[:12]
+    return head if r.returncode == 0 and re.fullmatch(r"[0-9a-f]{12}", head) else ci_pin()
+
+
 def test_reads_the_library_folder():
-    assert printed() == git(CORE, "rev-parse", "HEAD")[:12]
+    assert printed() == expected_core_commit()
 
 
 def test_reads_another_commit_than_the_pin(tmp_path):
