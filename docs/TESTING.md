@@ -80,6 +80,12 @@ Build a RETROS.IMG from RETROS-BIOS, then:
 make test-target RETROS_IMG=/path/to/retros.img
 ```
 
+Without `RETROS_IMG` these tests skip. The nightly run in RobCo-Core selects them by name, `-k whole_chain`.
+
+- `test_chain.py`: `test_whole_chain` boots the test OS through the BIOS and the agent. `test_whole_chain_keeps_bios_text` checks the BIOS text above the menu.
+- `test_chain_diag.py`: the agent's menu picks `DIAG`, the real `DIAG.SYS` boots, and `diag all` with the clock chip and both expanders ends with 7 OK, 1 ABSENT and 1 SKIPPED. The card sees no write.
+- `test_chain_fallback.py`: `MFBOOT.SYS` broken by a flipped byte, a wrong magic or a cut file. With a good `MFBOOT.BAK`, the BIOS reports the error, falls back, sets `boot_flags` bit 0, and the agent clears the bit for the test OS. With both broken, the BIOS opens its emergency shell with `E08 CRC`, `E03 MAGIC` or `E05 SIZE`.
+
 ## The diagnostics image
 
 `tests/test_diag_*.py` start `build/diag.sys` alone, through a two-word image at `0x8000`, with the helpers in `tests/diag.py`. They drive it through the maintenance port and read its markers and screen. The image's port shares the agent's `state` and `dump` protocol, so the tests use `state()` and `batch()` from `tests/mfboot.py`. Its `state` line also ends with `pending=<n>`, and the tests read the screen only after `state()`.
