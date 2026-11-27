@@ -18,7 +18,10 @@
 #                             (DEVICES=1 adds the I2C chips)
 #   make run-maint            the maintenance image alone, with the card
 #                             (DEVICES=1 adds the I2C chips)
-#   make check-pins           CI workflow pins and doc links match the submodule
+#   make check-pins           CI workflow pins and doc links match the submodule,
+#                             then check-workflows
+#   make check-workflows      RobCo-Core's guard on .github/workflows/: no ${{ }}
+#                             in a script, every uses: pinned by a full commit
 #   make clean
 
 ROBCO_CORE := external/robco-core
@@ -198,7 +201,8 @@ test-target: all venv
 # DOC_ROOT: the tree whose Markdown links check-doc-links reads.
 DOC_ROOT ?= .
 
-check-pins: check-doc-links
+# check-workflows comes from robco.mk. CI runs it through test-host.
+check-pins: check-doc-links check-workflows
 	$(ROBCO_CORE)/tools/check_pins.sh .github/workflows/ci.yml
 
 check-doc-links:

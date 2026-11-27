@@ -4,6 +4,8 @@
 
 `make test-host` builds each `tests/host/test_<name>.c` with the pure files and runs it with AddressSanitizer and UBSan. It also compiles them with the cross GCC in two passes, at CI's flags with the sanitizers and at `-O2`, to catch the GCC warnings that CI reports. `make ci-local` runs a CI build in the robco-ci container with Docker. Both come from RobCo-Core's `mk/host.mk`.
 
+Before the host tests, `make check-pins` runs `make check-workflows`. That target comes from RobCo-Core's `mk/robco.mk` and runs its `tools/check_workflow_exprs.py` on every file under `.github/workflows/`. It fails on a `${{ }}` inside a script and on a `uses:` not pinned by a full commit.
+
 | File | Covers |
 |---|---|
 | `test_bootcfg.c` | `[maint]` skipped without a count. The spec's three examples verbatim, the order of results per entry header, every limit, the path and `cmdline` rules, upper-case paths, last value wins, `[boot]` twice, duplicates, more than 8 usable entries, unusable sections that take no slot, defaults, syntax errors |
