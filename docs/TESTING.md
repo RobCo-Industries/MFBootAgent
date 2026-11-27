@@ -160,3 +160,23 @@ What stays unverified until hardware:
 - Pulls are not modelled. The internal pull-up that holds a released line high on a board is not exercised: the test drives the line high instead.
 - Real switch wiring, contact resistance and a button that sticks after release.
 - The delete of `MAINT.REQ` on a real card, and a card's write-protect switch.
+
+## Hardware checklist
+
+The checklist for the whole terminal chain lives in UOS: see its [hardware checklist](https://github.com/RobCo-Industries/UOS/blob/master/docs/TESTING.md#hardware-checklist). It lists what you need and how to wire the serial line. Make the card with UOS's `make bootdir`, see [A real card](https://github.com/RobCo-Industries/UOS/blob/master/docs/BUILD.md#a-real-card). It takes `MFBOOT.SYS`, `MAINT.SYS` and `DIAG.SYS` from this repository.
+
+No row has run on a board yet. Record results in UOS, next to the checklist.
+
+The rows of this stage:
+
+| Row | Do | Proof |
+|---|---|---|
+| Boot agent | Wait | `@RC stage=bootagent ev=entries`, `ev=countdown state=start`, `ev=choose name=UOS via=timeout`, `ev=jump` |
+| Maintenance | After a request from UOS, pick Start the maintenance image, the fourth action of the maintenance screen | `@RC stage=bootagent ev=maint_open why=request`, `ev=choose name=MAINT`, `@RC stage=maint ev=ready` |
+| Diagnostics | Press a key in the countdown, move to `DIAG`, press Enter. In the image, press `A` to run all | `@RC stage=diag ev=ready`, then `ev=diag_done` |
+
+`ev=diag_done` comes only after run all. The image starts no test by itself.
+
+The QEMU tests cover the markers of these rows. `test_menu.py` covers the menu, the countdown and the jump. `test_maint_req.py` and `test_maint_road.py` cover a request, the maintenance screen and the start of `MAINT.SYS`. `test_diag_chain.py`, `test_diag_all.py` and `test_chain_diag.py` cover `DIAG` from the menu and run all. Only a board can show real buttons on the menu and the real card: its mount, its timing and the delete of `MAINT.REQ`.
+
+Two images of this repository help on a board. `DIAG.SYS` tests the memory, the card, the screen, the buttons and the devices, see [DIAG.md](DIAG.md). `MAINT.SYS` checks the card, shows its files, sets the clock and restores the user file, see [MAINT.md](MAINT.md).
