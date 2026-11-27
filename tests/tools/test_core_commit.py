@@ -33,11 +33,18 @@ def ci_pin():
 def expected_core_commit():
     """What make takes, by the Makefile's rule: git asked in make's own
     environment, global settings included, or the pin when git fails or
-    refuses the folder, as in a CI container on a checkout of another owner."""
-    r = subprocess.run(["git", "rev-parse", "--verify", "-q", "HEAD"], cwd=CORE,
-                       capture_output=True, text=True, env=minimal_env())
+    refuses the folder, as in a CI container on a checkout of another owner.
+    The folder must be the top of its own repository: a copy without .git
+    would answer with the parent's commit, and make takes the pin there."""
+    def ask(*args):
+        return subprocess.run(["git", "rev-parse", *args], cwd=CORE, capture_output=True,
+                              text=True, env=minimal_env())
+    top, r = ask("--show-prefix"), ask("--verify", "-q", "HEAD")
     head = r.stdout.strip()[:12]
-    return head if r.returncode == 0 and re.fullmatch(r"[0-9a-f]{12}", head) else ci_pin()
+    if top.returncode == 0 and not top.stdout.strip() and r.returncode == 0 \
+            and re.fullmatch(r"[0-9a-f]{12}", head):
+        return head
+    return ci_pin()
 
 
 def test_reads_the_library_folder():
