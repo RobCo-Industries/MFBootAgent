@@ -8,8 +8,10 @@ tests/golden/verify_<board>.png.
 import os
 import re
 import struct
+import subprocess
 import time
 
+from harness.env import minimal_env
 from mfboot import (DIAG, MAINT, OFF_ABI, OFF_CRC, OFF_SUBTYPE, OS_READY, READY, TIMEOUT, UOS,
                     WAIT_CFG, after, alone, batch, card, char, check_golden, dump, events, flip, key, one,
                     os_checks, os_files, patched, screenshot, state)
@@ -37,8 +39,10 @@ MENU_TITLE = "ROBCO MFBOOT AGENT V0.1.0"
 
 
 def core_pin():
-    with open(os.path.join(ROOT, ".github", "workflows", "ci.yml")) as f:
-        return re.search(r"robco-ci\.yml@([0-9a-f]{12})", f.read()).group(1)
+    """The library commit the Makefile builds in, by its own rule."""
+    r = subprocess.run(["make", "-s", "--no-print-directory", "print-core-commit"], cwd=ROOT,
+                       capture_output=True, text=True, env=minimal_env(), check=True)
+    return r.stdout.strip()
 
 
 def wait_count(vm, name, n):
