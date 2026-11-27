@@ -36,6 +36,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- `make check-pins`, and so `make test-host` in CI, now runs RobCo-Core's `make check-workflows` on `.github/workflows/`.
+- RobCo-Core moved to `300e5a3`. It brings the workflow guard `make check-workflows` and a harness that removes a passing test's temp folder; the agent's image, tests and goldens do not change.
 - RobCo-Core moved to `c8220b2`.
 - RobCo-Core is pinned at `25f36d8`. Its harness parks the spare cores of QEMU's raspi3b, and its host warning check compiles at CI's flags.
 - The host timing skip limit is RobCo-Core's, per board. `tests/timing_skips.py` is gone. `--timing-skips-max` now counts per board.
