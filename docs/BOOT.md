@@ -101,7 +101,7 @@ The screen takes 18 rows below the text on screen, scrolling like the menu, and 
 | Reboot | `reboot source=screen`, then the watchdog, as the port's `reboot` |
 | Back to the boot menu | Closes the screen |
 
-The RobCo-Core pin comes from the CI workflow pin, which `make check-pins` holds equal to the submodule.
+The RobCo-Core line shows the commit checked out in `external/robco-core`, its first 12 characters, read with git at build time. When git is missing, fails or refuses the folder, the line shows the CI workflow pin, which `make check-pins` holds equal to the submodule. `make -s print-core-commit` prints the value a build takes. Each build writes the value it compiled in to `core_commit` in its build folder, and the System screen test compares the screen with that file.
 
 The countdown boots the default entry no sooner than `timeout` seconds after the menu shows, by `timer_now_ms()`. The menu loop waits for input at most until the next second of the countdown, so the boot starts on the first pass after the time is up. The countdown uses the unsigned difference of two `timer_now_ms()` values, so it also works across the wrap of that counter after 2^32 ms.
 

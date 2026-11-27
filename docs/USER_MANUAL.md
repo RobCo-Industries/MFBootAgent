@@ -168,7 +168,7 @@ The page shows the state of the last mount. After a failed Verify entries or boo
 | `Boot info` | `trusted, from the previous stage`, or `none trusted, this stage cold-booted` when the stage started alone |
 | `Boot flags` | The flags the previous stage passed on, in hex, or `none received` |
 | `Version` | The version of this stage |
-| `RobCo-Core` | The commit of the library this stage was built with |
+| `RobCo-Core` | The commit of the library this stage was built with, its first 12 characters |
 | `Screen` | `adopted from the previous stage`, `started by this stage`, or `none, serial only` |
 
 ### Configuration

@@ -36,9 +36,13 @@ SCREEN = [
 MENU_TITLE = "ROBCO MFBOOT AGENT V0.1.0"
 
 
-def core_pin():
-    with open(os.path.join(ROOT, ".github", "workflows", "ci.yml")) as f:
-        return re.search(r"robco-ci\.yml@([0-9a-f]{12})", f.read()).group(1)
+def core_pin(build_dir):
+    """The library commit compiled into the image of build_dir: the Makefile
+    writes it to build_dir/core_commit at each build."""
+    path = os.path.join(build_dir, "core_commit")
+    assert os.path.isfile(path), f"{path} is missing: build first, make BUILD={build_dir}"
+    with open(path) as f:
+        return f.read().strip()
 
 
 def wait_count(vm, name, n):
@@ -261,7 +265,7 @@ def test_button_back_opens_and_esc_does_not(board, mfboot_image, test_os, need_m
         assert not events(vm, "maint_action")
 
 
-def test_system_and_config_pages(board, mfboot_image, test_os, need_mtools, tmp_path):
+def test_system_and_config_pages(board, mfboot_image, build_dir, test_os, need_mtools, tmp_path):
     cfg = WAIT_CFG.replace(b"default = UOS\n",
                            b"default = MAINT\ntimeout = 150\n[entry MAINT]\npath = /X\n")
     with alone(mfboot_image, board, card(tmp_path, os_files(test_os), cfg=cfg)) as vm:
@@ -279,7 +283,7 @@ def test_system_and_config_pages(board, mfboot_image, test_os, need_mtools, tmp_
             "Boot info:    none trusted, this stage cold-booted",
             "Boot flags:   none received",
             "Version:      0.1.0",
-            f"RobCo-Core:   {core_pin()}",
+            f"RobCo-Core:   {core_pin(build_dir)}",
             "Screen:       started by this stage",
         ], rows
         assert page[9] == "", rows

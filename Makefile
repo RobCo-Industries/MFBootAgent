@@ -79,9 +79,19 @@ HOST_TEST_DIR := tests/host
 HOST_SRCS     := $(PURE_SRCS) $(DIAG_PURE_SRCS) $(MAINT_PURE_SRCS)
 HOST_INCLUDES := src diag maint
 
-# The library's commit for the maintenance screen, from the CI workflow
-# pin, which check-pins holds equal to the submodule. No git needed.
-MFB_CORE_PIN := $(or $(shell sed -n 's/.*robco-ci\.yml@\([0-9a-f]\{12\}\).*/\1/p' .github/workflows/ci.yml 2>/dev/null | head -n 1),unknown)
+# The library's commit for the maintenance screen: the first 12 characters
+# of the commit checked out in MFB_CORE_GIT_DIR, read with git. The folder
+# must be the top of its own repository, so a copy without .git does not
+# read the parent's commit. When git is missing, fails or refuses the
+# folder, the CI workflow pin, which check-pins holds equal to the
+# submodule. When both fail, unknown. A value on the command line wins.
+MFB_CORE_GIT_DIR ?= $(ROBCO_CORE)
+MFB_CORE_PIN := $(or \
+    $(shell cd '$(MFB_CORE_GIT_DIR)' 2>/dev/null && \
+        test -z "$$(git rev-parse --show-prefix 2>/dev/null)" && \
+        git rev-parse --verify -q HEAD 2>/dev/null | cut -c1-12 | grep -E '^[0-9a-f]{12}$$'), \
+    $(shell sed -n 's/.*robco-ci\.yml@\([0-9a-f]\{12\}\).*/\1/p' .github/workflows/ci.yml 2>/dev/null | head -n 1), \
+    unknown)
 EXTRA_CFLAGS += -DMFB_CORE_PIN='"$(MFB_CORE_PIN)"'
 
 # MFB_TEST=1 builds the test hook of main.c: build/mfbtest/mfboot.img. Not shipped.
@@ -92,6 +102,13 @@ ifeq ($(wildcard $(ROBCO_CORE)/mk/robco.mk),)
 $(error $(ROBCO_CORE) is empty: run git submodule update --init)
 endif
 
+# print-core-commit prints the value for the tests. Alone, it reads no
+# library rule: robco.mk would clean a build of another BUILD spelling.
+.PHONY: print-core-commit
+print-core-commit:
+	@echo $(MFB_CORE_PIN)
+
+ifneq ($(MAKECMDGOALS),print-core-commit)
 .DEFAULT_GOAL := all
 include $(ROBCO_CORE)/mk/robco.mk
 include $(ROBCO_CORE)/mk/host.mk
@@ -99,8 +116,21 @@ include $(ROBCO_CORE)/mk/host.mk
 # Target tests boot the images built here; keep top-level targets serial.
 .NOTPARALLEL:
 
-# The pin is compiled into main.c: rebuild it when the pin moves.
-$(BUILD)/obj/src/main.o: .github/workflows/ci.yml
+# The value is compiled into main.c. $(BUILD)/core_commit holds the last
+# one and changes only with it, so main.o rebuilds when the value moves
+# and not on every make. A new value also deletes main.o and the ELF and
+# image linked from it: GNU make 3.81 sees mtimes in whole seconds and
+# would keep a file made in the same second as the one it depends on.
+# Each BUILD has its own stamp, build/mfbtest too.
+MFB_CORE_STAMP := $(BUILD)/core_commit
+MFB_MAIN_OBJ   := $(BUILD)/obj/src/main.o
+ifneq ($(shell cat '$(MFB_CORE_STAMP)' 2>/dev/null),$(MFB_CORE_PIN))
+$(shell mkdir -p '$(BUILD)' && \
+  rm -f '$(MFB_MAIN_OBJ)' '$(ROBCO_ELF)' '$(ROBCO_IMG)' && \
+  printf '%s\n' '$(MFB_CORE_PIN)' > '$(MFB_CORE_STAMP)')
+endif
+$(MFB_MAIN_OBJ): $(MFB_CORE_STAMP)
+endif
 
 # ---- Test operating images ------------------------------------------------
 
