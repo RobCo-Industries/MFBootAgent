@@ -54,7 +54,7 @@ How the stage starts:
 | `test_buttons.py` | GPIO buttons on the boot menu, BACK and DOWN and SELECT held at start, the all-lines-low guard, two buttons in the `DIAG.SYS` input view. See [GPIO buttons](#gpio-buttons). |
 | `test_card_writes.py` | No QEMU: the agent links no writing call of the file system API but `fs_unlink()`, calls it once with the request's path, and opens every file with `FS_READ` |
 | `test_port_replies.py` | `state()` and `batch()` against a fake port, no QEMU: a reply left unread by a raw write is reported |
-| `tools/test_core_commit.py` | No QEMU: `make print-core-commit` gives the library folder's commit, another commit than the pin, the CI workflow pin when git cannot read the folder or the folder is not the top of its own repository, and a value from the command line |
+| `tools/test_core_commit.py` | No QEMU: `make print-core-commit` gives the library folder's commit, another commit than the pin, the CI workflow pin when git cannot read the folder or the folder is not the top of its own repository, and a value from the command line. A new value makes make compile `main.c` again even in the same second as the old object |
 | `test_timing_skips.py` | No QEMU: the library's host timing skip limit is loaded, and a starved timer skips with a reason it counts |
 
 The test OS in `tests/os/` is built three times, as subtypes 0, 2 and 3. It checks the registers and the boot info it receives against the spec for a third stage and prints one `check` marker per check.

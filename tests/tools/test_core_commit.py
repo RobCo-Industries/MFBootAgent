@@ -53,3 +53,30 @@ def test_falls_back_to_the_pin_for_a_folder_inside_another_repository():
 
 def test_command_line_value_wins():
     assert printed("MFB_CORE_PIN=0123456789ab") == "0123456789ab"
+
+
+def main_obj_ready(build, pin):
+    """make -q on main.o: True when make would not compile main.c again."""
+    obj = os.path.join(build, "obj", "src", "main.o")
+    r = subprocess.run(["make", "-q", "--no-print-directory", f"BUILD={build}",
+                        f"MFB_CORE_PIN={pin}", obj], cwd=ROOT, capture_output=True, text=True,
+                       env=minimal_env())
+    assert r.returncode in (0, 1), r.stderr
+    return r.returncode == 0
+
+
+def test_a_new_value_compiles_main_again_in_the_same_second(tmp_path):
+    build = str(tmp_path / "build")
+    obj = os.path.join(build, "obj", "src", "main.o")
+    stamp = os.path.join(build, "core_commit")
+    assert not main_obj_ready(build, "aaaaaaaaaaaa")  # writes the stamp
+    os.makedirs(os.path.dirname(obj))
+    open(obj, "wb").close()
+    t = int(os.stat(stamp).st_mtime) + 1
+    os.utime(stamp, (t, t))
+    os.utime(obj, (t, t))
+    assert main_obj_ready(build, "aaaaaaaaaaaa")  # same value: no rebuild
+    assert not main_obj_ready(build, "bbbbbbbbbbbb")
+    assert not os.path.exists(obj)
+    with open(stamp) as f:
+        assert f.read().strip() == "bbbbbbbbbbbb"
