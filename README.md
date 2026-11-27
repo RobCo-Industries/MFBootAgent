@@ -22,7 +22,7 @@ It also builds `MAINT.SYS`, the maintenance image with six tools for the card, t
 
 Every planned part exists now: the menu, the maintenance screen, the buttons and the diagnostics image.
 
-Nothing has been tried on real hardware.
+Nothing has been tried on real hardware. The checklist for a board is in [docs/TESTING.md](docs/TESTING.md#hardware-checklist).
 
 Not planned: TFTP boot, USB boot, holotape boot and image signatures.
 
